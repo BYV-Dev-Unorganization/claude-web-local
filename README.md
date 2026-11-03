@@ -38,7 +38,7 @@ The container runs without network access, with a read-only root filesystem, dro
 
 ## Current behavior
 
-The current slice provides streaming multi-turn chat, conversation history, model alias selection, project records, text-based project ingestion and lexical search, persisted artifacts/version history, explicit memory CRUD, persisted task lifecycle/approval APIs, permission-gated workspace tool execution, and a manually operated workspace explorer with a Docker-isolated command runner. Task records and approval decisions are durable, but there is not yet an autonomous planner or worker capable of planning and continuing tasks on its own.
+The current slice provides streaming multi-turn chat, conversation rename and non-destructive branch/edit/regenerate flows, project editing/archiving and text-file management with lexical search, artifact editing/version restore/export and sandboxed HTML preview, explicit memory CRUD, persisted task lifecycle/approval APIs, ordered task events, permission-gated manual workspace tool execution, and a manually operated workspace explorer with a Docker-isolated command runner. Task records and approval decisions are durable, but there is not yet an autonomous planner or worker capable of planning and continuing tasks on its own.
 
 The provider API key stays in the server process. The client receives alias configuration status only. The thinking indicator is shown only when a provider emits a thinking phase; private reasoning content is never displayed.
 
