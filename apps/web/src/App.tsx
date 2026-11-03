@@ -65,6 +65,8 @@ export default function App() {
   const [selectedArtifact, setSelectedArtifact] = useState<{ title: string; artifact_type: string; content: string; id: string; current_version: number } | null>(null);
   const [artifactVersions, setArtifactVersions] = useState<ArtifactVersion[]>([]);
   const [search, setSearch] = useState("");
+  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [conversationTitleDraft, setConversationTitleDraft] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ fileName: string; text: string; chunkIndex: number }>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -489,6 +491,17 @@ export default function App() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Memory save failed."); }
   };
 
+  const renameConversation = async (conversationId: string) => {
+    const title = conversationTitleDraft.trim();
+    if (!title) return;
+    try {
+      await api("/api/v1/conversations/" + conversationId, { method: "PATCH", body: JSON.stringify({ title }) });
+      setEditingConversationId(null);
+      await refreshConversations();
+      setNotice("Conversation renamed.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Conversation rename failed."); }
+  };
+
   const deleteConversation = async (conversationId: string) => {
     try {
       await api("/api/v1/conversations/" + conversationId, { method: "DELETE" });
@@ -519,8 +532,19 @@ export default function App() {
         <div className="conversation-list">
           {filteredConversations.map((conversation) => (
             <div key={conversation.id} className={activeConversation === conversation.id ? "conversation-row selected" : "conversation-row"}>
-              <button onClick={() => { setPage("chat"); void openConversation(conversation.id); }} title={conversation.title}>{conversation.title}</button>
-              <button className="icon-button delete-small" onClick={() => void deleteConversation(conversation.id)} aria-label={"Delete " + conversation.title}>×</button>
+              {editingConversationId === conversation.id ? (
+                <form onSubmit={(event) => { event.preventDefault(); void renameConversation(conversation.id); }}>
+                  <input aria-label="Conversation title" autoFocus value={conversationTitleDraft} onChange={(event) => setConversationTitleDraft(event.target.value)} maxLength={160} />
+                  <button className="icon-button" type="submit" aria-label="Save title">✓</button>
+                  <button className="icon-button" type="button" onClick={() => setEditingConversationId(null)} aria-label="Cancel rename">×</button>
+                </form>
+              ) : (
+                <>
+                  <button onClick={() => { setPage("chat"); void openConversation(conversation.id); }} title={conversation.title}>{conversation.title}</button>
+                  <button className="icon-button delete-small" onClick={() => { setEditingConversationId(conversation.id); setConversationTitleDraft(conversation.title); }} aria-label={"Rename " + conversation.title}>✎</button>
+                  <button className="icon-button delete-small" onClick={() => void deleteConversation(conversation.id)} aria-label={"Delete " + conversation.title}>×</button>
+                </>
+              )}
             </div>
           ))}
           {filteredConversations.length === 0 && <p className="muted small-pad">No conversations yet.</p>}
