@@ -33,8 +33,8 @@ export function createConversationBranch(conversationId: string, throughMessageI
 
   const transaction = sqlite.transaction(() => {
     sqlite.prepare(
-      "INSERT INTO conversations (id, project_id, title, model_alias, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)"
-    ).run(branchId, source.project_id, title, source.model_alias, timestamp, timestamp);
+      "INSERT INTO conversations (id, project_id, parent_conversation_id, branch_message_id, title, model_alias, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)"
+    ).run(branchId, source.project_id, conversationId, throughMessageId, title, source.model_alias, timestamp, timestamp);
 
     const insertMessage = sqlite.prepare(`
       INSERT INTO messages (
