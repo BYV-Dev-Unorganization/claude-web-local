@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyReply } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   cancelTask, createTask, decideApproval, getTask, listApprovals, listTaskEvents,
@@ -76,7 +76,7 @@ const agentRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  const taskAction = (action: (taskId: string) => unknown) => async (request: Parameters<FastifyPluginAsync>[0] extends never ? never : import("fastify").FastifyRequest, reply: FastifyReply) => {
+  const taskAction = (action: (taskId: string) => unknown) => async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const taskId = idSchema.parse((request.params as { id: string }).id);
       return action(taskId);
