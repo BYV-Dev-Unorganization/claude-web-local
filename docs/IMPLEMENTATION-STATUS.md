@@ -25,13 +25,13 @@ This file tracks evidence for the implementation branch. Planning documents rema
 - [ ] Conversation edit/branch/regenerate/export and message-level search.
 - [ ] Research search/fetch workers, durable plans, source evaluation, and citation validation.
 - [ ] Agent planner/orchestrator, durable queue leases, checkpoints, approvals, pause/resume/retry, and worker recovery.
-- [ ] Isolated coding worker/container, shell/test execution, Git operations, snapshots, and rollback.
+- [~] Manual workspace explorer and file read/write API; confirmed commands and Git status/diff run through a Docker container with network disabled. Autonomous agent integration, Git branch/commit workflows, snapshots, rollback, and security validation remain incomplete.
 - [ ] Playwright browser worker, hardened network egress, session lifecycle, and sensitive-action approvals.
 - [ ] MCP transports/discovery/lifecycle, connectors, plugin installation/runtime, and skill execution.
 - [ ] Memory candidate extraction/approval/provenance workflow.
 - [ ] Cron scheduler and durable occurrence dispatch.
 - [ ] Multi-agent orchestration and voice adapters.
-- [ ] Full E2E, migration, provider-contract, security, recovery, load, and soak test coverage.
+- [ ] Full E2E, migration, provider-contract, container-boundary, recovery, load, and soak test coverage.
 - [ ] Production static serving, backup/restore automation, and hardened remote deployment.
 
 ## Verification policy

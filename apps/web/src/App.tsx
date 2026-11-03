@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import CodingWorkspace from "./CodingWorkspace";
 
 type Alias = "fable" | "opus" | "sonnet" | "haiku";
-type Page = "chat" | "projects" | "artifacts" | "memory" | "settings";
+type Page = "chat" | "projects" | "artifacts" | "memory" | "coding" | "settings";
 type Conversation = { id: string; title: string; model_alias: Alias; project_id?: string | null; updated_at: string };
 type Message = { id: string; role: "user" | "assistant"; content: string; status: string; created_at?: string };
 type Project = { id: string; name: string; description?: string; instructions?: string };
@@ -294,7 +295,7 @@ export default function App() {
   };
 
   const filteredConversations = conversations.filter((conversation) => conversation.title.toLowerCase().includes(search.toLowerCase()));
-  const currentPageTitle = { chat: "Chat", projects: "Projects", artifacts: "Artifacts", memory: "Memory", settings: "Settings" }[page];
+  const currentPageTitle = { chat: "Chat", projects: "Projects", artifacts: "Artifacts", memory: "Memory", coding: "Coding workspace", settings: "Settings" }[page];
 
   return (
     <div className="app-shell">
@@ -302,10 +303,10 @@ export default function App() {
         <div className="brand"><span className="brand-mark">✳</span><div><strong>Claude Web Local</strong><small>Private AI workspace</small></div></div>
         <button className="new-chat" onClick={() => void createConversation()}><span>＋</span> New chat</button>
         <nav className="primary-nav" aria-label="Main navigation">
-          {(["chat", "projects", "artifacts", "memory", "settings"] as Page[]).map((item) => (
+          {(["chat", "projects", "artifacts", "memory", "coding", "settings"] as Page[]).map((item) => (
             <button key={item} className={page === item ? "nav-item active" : "nav-item"} onClick={() => setPage(item)}>
-              <span className="nav-icon">{({ chat: "◫", projects: "▤", artifacts: "◇", memory: "⌁", settings: "⚙" } as Record<Page, string>)[item]}</span>
-              {({ chat: "Chats", projects: "Projects", artifacts: "Artifacts", memory: "Memory", settings: "Settings" } as Record<Page, string>)[item]}
+              <span className="nav-icon">{({ chat: "◫", projects: "▤", artifacts: "◇", memory: "⌁", coding: "⌘", settings: "⚙" } as Record<Page, string>)[item]}</span>
+              {({ chat: "Chats", projects: "Projects", artifacts: "Artifacts", memory: "Memory", coding: "Coding", settings: "Settings" } as Record<Page, string>)[item]}
             </button>
           ))}
         </nav>
@@ -476,6 +477,8 @@ export default function App() {
             </div>
           </section>
         )}
+
+        {page === "coding" && <CodingWorkspace />}
 
         {page === "settings" && (
           <section className="content-page narrow-page">

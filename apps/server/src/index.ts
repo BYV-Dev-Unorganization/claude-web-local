@@ -9,6 +9,8 @@ import { z, ZodError } from "zod";
 import { config, isProviderConfigured, publicModelConfiguration, type ModelAlias } from "./config.js";
 import { sqlite, nowIso } from "./db.js";
 import { ProviderError, streamCompletion, testProvider } from "./provider.js";
+import { createWorkspace, listWorkspaces, getWorkspace, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, runWorkspaceCommand } from "./workspace.js";
+import { publicToolManifest } from "./tool-registry.js";
 
 const app = Fastify({
   logger: {
@@ -155,7 +157,7 @@ app.get("/api/v1/capabilities", async () => ({
   memory: { available: true, note: "Explicitly created memories only; automatic extraction/review is not enabled." },
   research: { available: false, reason: "No verified search-provider adapter is installed in this build." },
   agentRuntime: { available: false, reason: "Durable isolated worker execution is not yet installed." },
-  codingWorkspace: { available: false, reason: "A hardened container/worker runtime is required before write or command tools can be exposed." },
+  codingWorkspace: { available: false, reason: "Manual workspace operations exist, but autonomous coding-agent integration, Git branch/commit operations, snapshots, rollback, and the full security suite are not yet enabled.", manualMode: "Build cwl-coding-sandbox:local to enable the confirmed command runner." },
   browserAutomation: { available: false, reason: "Playwright worker and enforced network egress isolation are not yet installed." },
   mcp: { available: false, reason: "MCP transports and server lifecycle worker are not yet installed." },
   connectors: { available: false, reason: "No connector adapters are configured." },
@@ -576,11 +578,114 @@ app.delete("/api/v1/memories/:id", async (request, reply) => {
   return reply.send();
 });
 
+
+const workspaceCreateSchema = z.object({ name: z.string().trim().min(1).max(100) });
+
+app.get("/api/v1/workspaces", async () => ({ items: listWorkspaces() }));
+
+app.post("/api/v1/workspaces", async (request, reply) => {
+  const body = workspaceCreateSchema.parse(request.body);
+  const workspace = await createWorkspace(body.name);
+  reply.code(201);
+  return workspace;
+});
+
+app.get("/api/v1/workspaces/:id/tree", async (request, reply) => {
+  const workspaceId = validId(getParam(request, "id"));
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return sendNotFound(reply, "Workspace");
+  try {
+    return { workspace, files: await listWorkspaceFiles(workspace) };
+  } catch (error) {
+    return reply.code(400).send({ error: { code: "workspace_error", message: error instanceof Error ? error.message : "Unable to read workspace." } });
+  }
+});
+
+app.get("/api/v1/workspaces/:id/file", async (request, reply) => {
+  const workspaceId = validId(getParam(request, "id"));
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return sendNotFound(reply, "Workspace");
+  const query = z.object({ path: z.string().min(1).max(500) }).parse(request.query);
+  try {
+    return { path: query.path, content: await readWorkspaceFile(workspace, query.path) };
+  } catch (error) {
+    return reply.code(400).send({ error: { code: "workspace_file_error", message: error instanceof Error ? error.message : "Unable to read file." } });
+  }
+});
+
+app.put("/api/v1/workspaces/:id/file", async (request, reply) => {
+  const workspaceId = validId(getParam(request, "id"));
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return sendNotFound(reply, "Workspace");
+  const body = z.object({
+    path: z.string().min(1).max(500),
+    content: z.string().max(1_000_000),
+    confirmed: z.literal(true)
+  }).parse(request.body);
+  try {
+    const result = await writeWorkspaceFile(workspace, body.path, body.content);
+    return { workspaceId, path: body.path, ...result };
+  } catch (error) {
+    return reply.code(503).send({
+      error: {
+        code: "sandbox_unavailable",
+        message: "The isolated coding sandbox is unavailable or rejected this operation. Build workers/coding/Dockerfile as cwl-coding-sandbox:local and retry."
+      }
+    });
+  }
+});
+
+app.get("/api/v1/workspaces/:id/git/status", async (request, reply) => {
+  const workspaceId = validId(getParam(request, "id"));
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return sendNotFound(reply, "Workspace");
+  try {
+    const result = await runWorkspaceCommand(workspace, "git status --short --branch", 30000);
+    return { ...result };
+  } catch {
+    return reply.code(503).send({ error: { code: "sandbox_unavailable", message: "Build the isolated coding sandbox before running Git tools." } });
+  }
+});
+
+app.get("/api/v1/workspaces/:id/git/diff", async (request, reply) => {
+  const workspaceId = validId(getParam(request, "id"));
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return sendNotFound(reply, "Workspace");
+  try {
+    const result = await runWorkspaceCommand(workspace, "git diff --", 30000);
+    return { ...result };
+  } catch {
+    return reply.code(503).send({ error: { code: "sandbox_unavailable", message: "Build the isolated coding sandbox before running Git tools." } });
+  }
+});
+
+app.post("/api/v1/workspaces/:id/commands", async (request, reply) => {
+  const workspaceId = validId(getParam(request, "id"));
+  const workspace = getWorkspace(workspaceId);
+  if (!workspace) return sendNotFound(reply, "Workspace");
+  const body = z.object({
+    command: z.string().trim().min(1).max(4000),
+    confirmed: z.literal(true),
+    timeoutMs: z.coerce.number().int().min(1000).max(120000).default(120000)
+  }).parse(request.body);
+  try {
+    const result = await runWorkspaceCommand(workspace, body.command, body.timeoutMs);
+    return { ...result, workspaceId };
+  } catch {
+    return reply.code(503).send({ error: { code: "sandbox_unavailable", message: "The isolated coding sandbox could not start. Build workers/coding/Dockerfile as cwl-coding-sandbox:local." } });
+  }
+});
+
+app.get("/api/v1/tools/manifest", async () => ({
+  items: publicToolManifest(),
+  execution: "Registered tools are not exposed to autonomous agent execution until the durable worker and approval runtime are enabled."
+}));
+
 app.get("/api/v1/runtime/status", async () => ({
   app: "ready",
   database: sqlite.open ? "ready" : "unavailable",
   provider: isProviderConfigured() ? "configured" : "not_configured",
-  workers: { agent: "not_installed", coding: "not_installed", browser: "not_installed", research: "not_installed", scheduler: "not_installed" },
+  workers: { agent: "not_installed", coding: "manual_docker_sandbox_only", browser: "not_installed", research: "not_installed", scheduler: "not_installed" },
   security: { host: config.APP_HOST, remoteExposure: config.APP_HOST === "127.0.0.1" || config.APP_HOST === "::1" ? "loopback" : "requires_perimeter_authentication" }
 }));
 

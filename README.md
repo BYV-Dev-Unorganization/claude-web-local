@@ -30,13 +30,19 @@ Edit .env. Set AI_PROVIDER, AI_PROTOCOL, AI_BASE_URL, AI_API_KEY, all four model
 
 The API binds to 127.0.0.1 by default. There is intentionally no application login/logout. Do not bind to a public interface or expose the service over a tunnel unless a VPN or authenticated reverse proxy protects it.
 
+For the restricted coding command runner, install Docker and build the worker image once:
+
+    npm run build:sandbox
+
+The container runs without network access, with a read-only root filesystem, dropped Linux capabilities, CPU/memory/PID limits, and only the selected workspace mounted. The coding UI asks for explicit confirmation before writes and commands.
+
 ## Current behavior
 
-The current slice provides streaming multi-turn chat, conversation history, model alias selection, project records, text-based project ingestion and lexical search, persisted artifacts/version history, and explicit memory CRUD.
+The current slice provides streaming multi-turn chat, conversation history, model alias selection, project records, text-based project ingestion and lexical search, persisted artifacts/version history, explicit memory CRUD, and a manually operated workspace explorer with a Docker-isolated command runner.
 
 The provider API key stays in the server process. The client receives alias configuration status only. The thinking indicator is shown only when a provider emits a thinking phase; private reasoning content is never displayed.
 
-PDF, DOCX, XLSX, images, semantic embeddings/citations, deep research, durable agent orchestration, coding execution, browser automation, MCP, connector/plugin/skill execution, scheduling, multi-agent orchestration, and voice are not enabled in this slice. They are exposed as unavailable in /api/v1/capabilities rather than being simulated.
+PDF, DOCX, XLSX, images, semantic embeddings/citations, deep research, durable agent orchestration, autonomous coding-agent integration, browser automation, MCP, connector/plugin/skill execution, scheduling, multi-agent orchestration, and voice are not enabled in this slice. They are exposed as unavailable in /api/v1/capabilities rather than being simulated.
 
 ## Verification
 
