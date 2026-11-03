@@ -27,6 +27,7 @@ describe("conversation branch persistence", () => {
   });
 
   afterEach(() => {
+    sqlite.prepare("DELETE FROM conversations WHERE parent_conversation_id = ?").run(conversationId);
     sqlite.prepare("DELETE FROM conversations WHERE id = ?").run(conversationId);
   });
 
