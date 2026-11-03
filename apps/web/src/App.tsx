@@ -43,6 +43,7 @@ export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [pendingBranchThroughMessageId, setPendingBranchThroughMessageId] = useState<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
   const [modelAlias, setModelAlias] = useState<Alias>("sonnet");
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -173,11 +174,45 @@ export default function App() {
     try {
       const result = await api<{ items: Message[] }>("/api/v1/conversations/" + conversationId + "/messages");
       setMessages(result.items as Message[]);
+      setPendingBranchThroughMessageId(undefined);
       const conversation = conversations.find((item) => item.id === conversationId);
       if (conversation) setModelAlias(conversation.model_alias);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to open conversation.");
     }
+  };
+
+  const branchConversationAt = async (throughMessageId: string | null) => {
+    if (!activeConversation) return;
+    try {
+      const branch = await api<{ id: string }>("/api/v1/conversations/" + activeConversation + "/branch", {
+        method: "POST", body: JSON.stringify({ throughMessageId })
+      });
+      await refreshConversations();
+      await openConversation(branch.id);
+      setNotice("A separate conversation branch was created. The original history was preserved.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to create conversation branch."); }
+  };
+
+  const editUserMessage = (messageId: string) => {
+    const index = messages.findIndex((message) => message.id === messageId);
+    if (index < 0 || messages[index]?.role !== "user") return;
+    setPendingBranchThroughMessageId(index > 0 ? messages[index - 1]!.id : null);
+    setDraft(messages[index]!.content);
+    setNotice("Edit the prompt and send it to create a new branch. The original conversation will remain unchanged.");
+  };
+
+  const regenerateAssistantMessage = async (messageId: string) => {
+    const index = messages.findIndex((message) => message.id === messageId);
+    if (index < 0 || messages[index]?.role !== "assistant") return;
+    const previousUser = messages.slice(0, index).reverse().find((message) => message.role === "user");
+    if (!previousUser) {
+      setError("No preceding user prompt was found for this response.");
+      return;
+    }
+    const userIndex = messages.findIndex((message) => message.id === previousUser.id);
+    const throughMessageId = userIndex > 0 ? messages[userIndex - 1]!.id : null;
+    await sendMessage(undefined, previousUser.content, throughMessageId);
   };
 
   const createConversation = async () => {
@@ -196,11 +231,28 @@ export default function App() {
     }
   };
 
-  const sendMessage = async (event: FormEvent) => {
-    event.preventDefault();
-    const prompt = draft.trim();
+  const sendMessage = async (event?: FormEvent, promptOverride?: string, explicitBranchPoint?: string | null) => {
+    event?.preventDefault();
+    const prompt = (promptOverride ?? draft).trim();
     if (!prompt || isStreaming) return;
     let conversationId = activeConversation;
+    const branchPoint = explicitBranchPoint !== undefined ? explicitBranchPoint : pendingBranchThroughMessageId;
+    if (conversationId && branchPoint !== undefined) {
+      try {
+        const branch = await api<{ id: string }>("/api/v1/conversations/" + conversationId + "/branch", {
+          method: "POST", body: JSON.stringify({ throughMessageId: branchPoint })
+        });
+        conversationId = branch.id;
+        setActiveConversation(branch.id);
+        const history = await api<{ items: Message[] }>("/api/v1/conversations/" + branch.id + "/messages");
+        setMessages(history.items);
+        setPendingBranchThroughMessageId(undefined);
+        await refreshConversations();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Unable to branch this conversation.");
+        return;
+      }
+    }
     if (!conversationId) {
       try {
         const created = await api<{ id: string }>("/api/v1/conversations", {
@@ -592,6 +644,10 @@ export default function App() {
                       <div className="message-content">
                         <div className="message-meta"><strong>{message.role === "user" ? "You" : "Assistant"}</strong>{message.status !== "completed" && <span className="message-status">{message.status}</span>}</div>
                         {message.content ? <Markdown>{message.content}</Markdown> : message.role === "assistant" ? <div className="typing"><i /><i /><i /></div> : null}
+                        {message.status === "completed" && <div className="workspace-actions message-actions">
+                          {message.role === "user" && <button className="secondary-button" onClick={() => editUserMessage(message.id)}>Edit in new branch</button>}
+                          {message.role === "assistant" && <><button className="secondary-button" onClick={() => void regenerateAssistantMessage(message.id)}>Regenerate</button><button className="secondary-button" onClick={() => void branchConversationAt(message.id)}>Branch here</button></>}
+                        </div>}
                       </div>
                     </article>
                   ))}
@@ -600,6 +656,7 @@ export default function App() {
               )}
             </div>
             <form className="composer-wrap" onSubmit={(event) => void sendMessage(event)}>
+              {pendingBranchThroughMessageId !== undefined && <div className="context-chip">Editing in a new branch. The original history is safe. <button type="button" onClick={() => { setPendingBranchThroughMessageId(undefined); setDraft(""); }}>Cancel branch edit</button></div>}
               {selectedProject && <div className="context-chip">Project context: {projects.find((project) => project.id === selectedProject)?.name ?? "Selected project"} <button type="button" onClick={() => setSelectedProject("")}>×</button></div>}
               <div className="composer">
                 <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(event as unknown as FormEvent); } }} placeholder="Message your assistant..." rows={3} />
