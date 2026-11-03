@@ -60,7 +60,7 @@ function safeError(error: unknown): { code: string; message: string; status: num
       status: error.status && error.status >= 400 ? error.status : 502
     };
   }
-  return { code: "internal_error", message: error instanceof Error ? error.message : "Unexpected server error.", status: 500 };
+  return { code: "internal_error", message: "An unexpected server error occurred. Check the local server log for details.", status: 500 };
 }
 
 app.setErrorHandler((error, request, reply) => {
@@ -269,6 +269,12 @@ app.post("/api/v1/conversations/:id/turns", async (request, reply) => {
   insertMessage({ conversationId, role: "user", content: body.prompt, status: "completed", turnId, completedAt: timestamp });
   const history = sqlite.prepare("SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user','assistant') AND status = 'completed' ORDER BY created_at DESC LIMIT 40")
     .all(conversationId).reverse() as Array<{ role: "user" | "assistant"; content: string }>;
+  const projectInstructions = conversation.project_id
+    ? (sqlite.prepare("SELECT instructions FROM projects WHERE id = ? AND status = 'active'").get(conversation.project_id) as { instructions: string | null } | undefined)?.instructions
+    : null;
+  const providerMessages = projectInstructions
+    ? [{ role: "system" as const, content: projectInstructions }, ...history]
+    : history;
   const assistantMessageId = id();
 
   reply.hijack();
@@ -294,7 +300,7 @@ app.post("/api/v1/conversations/:id/turns", async (request, reply) => {
   const startedAt = Date.now();
   try {
     emit("message.start", { turnId, messageId: assistantMessageId, modelAlias: alias });
-    for await (const event of streamCompletion(alias, history, abortController.signal)) {
+    for await (const event of streamCompletion(alias, providerMessages, abortController.signal)) {
       if (event.type === "text.delta") {
         answer += event.text;
         emit("text.delta", { turnId, messageId: assistantMessageId, text: event.text });

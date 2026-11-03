@@ -1,6 +1,6 @@
 import { config, type ModelAlias } from "./config.js";
 
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 export type ProviderEvent =
   | { type: "text.delta"; text: string }
   | { type: "thinking.start" }
@@ -56,7 +56,8 @@ export async function* streamCompletion(
       model,
       max_tokens: config.AI_MAX_OUTPUT_TOKENS,
       stream: true,
-      messages: messages.map((message) => ({ role: message.role, content: message.content }))
+      system: messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n"),
+      messages: messages.filter((message) => message.role !== "system").map((message) => ({ role: message.role, content: message.content }))
     };
   } else {
     headers.authorization = "Bearer " + config.AI_API_KEY;
