@@ -11,6 +11,7 @@ import { sqlite, nowIso } from "./db.js";
 import { ProviderError, streamCompletion, testProvider } from "./provider.js";
 import { createWorkspace, listWorkspaces, getWorkspace, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, runWorkspaceCommand } from "./workspace.js";
 import { publicToolManifest } from "./tool-registry.js";
+import agentRoutes from "./agent-routes.js";
 
 const app = Fastify({
   logger: {
@@ -40,6 +41,7 @@ await app.register(cors, {
 await app.register(multipart, {
   limits: { fileSize: config.MAX_UPLOAD_BYTES, files: 5, fields: 20 }
 });
+await app.register(agentRoutes);
 
 const now = nowIso;
 const id = () => randomUUID();
