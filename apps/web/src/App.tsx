@@ -9,6 +9,8 @@ type Page = "chat" | "projects" | "artifacts" | "memory" | "tasks" | "coding" | 
 type TaskStatus = "queued" | "planning" | "running" | "waiting_approval" | "waiting_input" | "paused" | "completed" | "failed" | "cancelled";
 type TaskRecord = { id: string; title: string; description: string; status: TaskStatus; task_type: string; model_alias: Alias; execution_mode: string; created_at: string; updated_at: string };
 type ApprovalRecord = { id: string; task_id: string; action_name: string; target_json: string; status: string; requested_at: string; expires_at: string };
+type WorkspaceOption = { id: string; name: string; relative_path: string };
+type ToolOption = { name: string; description: string; permission: string; requiresApproval: boolean; timeoutMs: number };
 type Conversation = { id: string; title: string; model_alias: Alias; project_id?: string | null; updated_at: string };
 type Message = { id: string; role: "user" | "assistant"; content: string; status: string; created_at?: string };
 type Project = { id: string; name: string; description?: string; instructions?: string };
@@ -48,6 +50,13 @@ export default function App() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [availableTools, setAvailableTools] = useState<ToolOption[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [selectedToolName, setSelectedToolName] = useState("workspace.list");
+  const [toolInputJson, setToolInputJson] = useState("{}");
+  const [toolOutput, setToolOutput] = useState<string | null>(null);
   const [selectedArtifact, setSelectedArtifact] = useState<{ title: string; artifact_type: string; content: string; id: string } | null>(null);
   const [search, setSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
@@ -84,6 +93,17 @@ export default function App() {
   const refreshTasks = useCallback(async () => {
     const result = await api<{ items: TaskRecord[] }>("/api/v1/tasks?limit=50");
     setTasks(result.items);
+    setSelectedTaskId((current) => current && result.items.some((task) => task.id === current) ? current : result.items[0]?.id ?? "");
+  }, []);
+  const refreshWorkspaces = useCallback(async () => {
+    const result = await api<{ items: WorkspaceOption[] }>("/api/v1/workspaces");
+    setWorkspaces(result.items);
+    setSelectedWorkspaceId((current) => current && result.items.some((workspace) => workspace.id === current) ? current : result.items[0]?.id ?? "");
+  }, []);
+  const refreshToolManifest = useCallback(async () => {
+    const result = await api<{ items: ToolOption[] }>("/api/v1/tools/manifest");
+    setAvailableTools(result.items);
+    setSelectedToolName((current) => result.items.some((tool) => tool.name === current) ? current : result.items[0]?.name ?? "");
   }, []);
   const refreshApprovals = useCallback(async () => {
     const result = await api<{ items: ApprovalRecord[] }>("/api/v1/approvals?status=pending");
@@ -96,7 +116,7 @@ export default function App() {
       api<{ provider: string | null; models: ModelInfo[] }>("/api/v1/models"),
       api<Record<string, { available: boolean; reason?: string }>>("/api/v1/capabilities"),
       api<Record<string, unknown>>("/api/v1/runtime/status"),
-      refreshTasks(), refreshApprovals()
+      refreshTasks(), refreshApprovals(), refreshWorkspaces(), refreshToolManifest()
     ]).then(([, , , , modelData, caps, status]) => {
       setModels(modelData.models);
       setProvider(modelData.provider);
@@ -105,7 +125,7 @@ export default function App() {
       const defaultModel = modelData.models.find((item) => item.isDefault && item.configured);
       if (defaultModel) setModelAlias(defaultModel.alias);
     }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Failed to load application state."));
-  }, [refreshConversations, refreshProjects, refreshArtifacts, refreshMemories, refreshTasks, refreshApprovals]);
+  }, [refreshConversations, refreshProjects, refreshArtifacts, refreshMemories, refreshTasks, refreshApprovals, refreshWorkspaces, refreshToolManifest]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -286,6 +306,30 @@ export default function App() {
       const result = await api<{ id: string; title: string; artifact_type: string; version: { content: string } }>("/api/v1/artifacts/" + artifactId);
       setSelectedArtifact({ id: result.id, title: result.title, artifact_type: result.artifact_type, content: result.version.content });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to open artifact."); }
+  };
+
+  const startManualTask = async () => {
+    if (!selectedTaskId) return;
+    try {
+      await api("/api/v1/tasks/" + selectedTaskId + "/start", { method: "POST", body: JSON.stringify({}) });
+      await refreshTasks();
+      setNotice("Task is running. Tool execution remains operator-driven.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start task."); }
+  };
+
+  const runManualTool = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedTaskId || !selectedWorkspaceId || !selectedToolName) return;
+    try {
+      const input = JSON.parse(toolInputJson) as unknown;
+      const result = await api<{ status: string; approvalId?: string; actionName?: string; output?: unknown }>(
+        "/api/v1/tasks/" + selectedTaskId + "/workspaces/" + selectedWorkspaceId + "/tools/" + encodeURIComponent(selectedToolName),
+        { method: "POST", body: JSON.stringify({ input }) }
+      );
+      setToolOutput(JSON.stringify(result, null, 2));
+      await Promise.all([refreshTasks(), refreshApprovals()]);
+      setNotice(result.status === "waiting_approval" ? "Sensitive action queued for approval. Nothing was executed yet." : "Tool invocation completed.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Tool invocation failed. Check that the input is valid JSON."); }
   };
 
   const createAgentTask = async (event: FormEvent) => {
@@ -558,6 +602,26 @@ export default function App() {
                   </article>)}
                 </div>}
               </div>
+            </div>
+            <div className="panel">
+              <div className="panel-heading"><div><h2>Manual tool execution</h2><p>Start a queued task, choose an explicit workspace and invoke one validated tool at a time. Mutating tools pause for approval.</p></div><button className="secondary-button" onClick={() => void Promise.all([refreshWorkspaces(), refreshToolManifest()])}>Refresh resources</button></div>
+              <form className="stack-form" onSubmit={(event) => void runManualTool(event)}>
+                <div className="two-column">
+                  <label>Task<select required value={selectedTaskId} onChange={(event) => setSelectedTaskId(event.target.value)}><option value="">Choose task</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title} · {task.status}</option>)}</select></label>
+                  <label>Workspace<select required value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}><option value="">Choose workspace</option>{workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>
+                </div>
+                <div className="two-column">
+                  <label>Tool<select required value={selectedToolName} onChange={(event) => setSelectedToolName(event.target.value)}>{availableTools.map((tool) => <option key={tool.name} value={tool.name}>{tool.name}{tool.requiresApproval ? " · approval required" : " · read only"}</option>)}</select></label>
+                  <div className="field-hint">{availableTools.find((tool) => tool.name === selectedToolName)?.description ?? "Choose a registered tool."}</div>
+                </div>
+                <label>Tool input (JSON)<textarea rows={5} spellCheck={false} value={toolInputJson} onChange={(event) => setToolInputJson(event.target.value)} /></label>
+                <div className="workspace-actions">
+                  <button className="secondary-button" type="button" disabled={!tasks.some((task) => task.id === selectedTaskId && task.status === "queued")} onClick={() => void startManualTask()}>Start selected task</button>
+                  <button className="primary-button" type="submit" disabled={!tasks.some((task) => task.id === selectedTaskId && task.status === "running") || !selectedWorkspaceId || !selectedToolName}>Invoke tool</button>
+                </div>
+              </form>
+              {!workspaces.length && <p className="empty-copy">No workspace exists yet. Create one in Coding workspace before invoking tools.</p>}
+              {toolOutput && <pre className="status-json">{toolOutput}</pre>}
             </div>
             <div className="panel">
               <div className="panel-heading"><div><h2>Pending approvals <span className="count">{approvals.length}</span></h2><p>Decisions are bound to the exact stored action payload and expire automatically.</p></div><button className="secondary-button" onClick={() => void refreshApprovals()}>Refresh</button></div>
