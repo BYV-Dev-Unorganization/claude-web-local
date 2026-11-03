@@ -54,7 +54,7 @@ export async function* streamCompletion(
     headers["anthropic-version"] = "2023-06-01";
     body = {
       model,
-      max_tokens: config.AI_MAX_OUTPUT_TOKENS,
+      max_tokens: maxTokens,
       stream: true,
       system: messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n"),
       messages: messages.filter((message) => message.role !== "system").map((message) => ({ role: message.role, content: message.content }))
@@ -169,6 +169,7 @@ export type AgentTurnOptions = {
   tools?: AgentToolDefinition[];
   outputSchema?: Record<string, unknown>;
   forceToolName?: string;
+  maxOutputTokens?: number;
 };
 
 function safeProviderError(bodyText: string): string {
@@ -215,6 +216,12 @@ export async function completeAgentTurn(
   }
 
   const modelThinking = config.modelThinking[alias];
+  const configuredMaxTokens = Math.max(config.AI_MAX_OUTPUT_TOKENS, modelThinking.mode === "enabled" ? modelThinking.budgetTokens + 1024 : 1);
+  const maxTokens = Math.min(configuredMaxTokens, options.maxOutputTokens ?? configuredMaxTokens);
+  if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new ProviderError("The remaining task output-token budget is exhausted.", false, 400);
+  if (config.AI_PROTOCOL === "anthropic-messages" && modelThinking.mode === "enabled" && maxTokens <= modelThinking.budgetTokens) {
+    throw new ProviderError("The remaining task budget is too small for the configured Anthropic thinking budget.", false, 400);
+  }
   const url = endpoint(config.AI_PROTOCOL);
   const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
   let body: Record<string, unknown>;
@@ -234,7 +241,7 @@ export async function completeAgentTurn(
     };
     body = {
       model,
-      max_tokens: Math.max(config.AI_MAX_OUTPUT_TOKENS, thinking?.type === "enabled" ? modelThinking.budgetTokens + 1024 : 1),
+      max_tokens: maxTokens,
       system: messages.filter((message) => message.role === "system").map((message) => message.content).join("\\n\\n"),
       messages: toAnthropicMessages(messages),
       ...(tools?.length ? { tools, tool_choice: options.forceToolName ? { type: "tool", name: options.forceToolName } : { type: "auto" } } : {}),
