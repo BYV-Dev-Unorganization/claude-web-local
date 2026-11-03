@@ -105,6 +105,10 @@ export const config = {
 
 export type ModelAlias = keyof typeof config.models;
 
+export function isAgentProviderConfigured(): boolean {
+  return Boolean(config.AI_PROVIDER && config.AI_BASE_URL && config.AI_API_KEY && Object.values(config.models).some(Boolean));
+}
+
 export function isProviderConfigured(): boolean {
   return Boolean(
     config.AI_PROVIDER &&

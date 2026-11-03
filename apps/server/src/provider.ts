@@ -268,7 +268,7 @@ export async function completeAgentTurn(
       ...(options.outputSchema ? {
         response_format: { type: "json_schema", json_schema: { name: "cwl_structured_output", strict: true, schema: options.outputSchema } }
       } : {}),
-      ...(modelThinking.effort ? { reasoning_effort: modelThinking.effort } : {})
+      ...(modelThinking.mode !== "off" ? { reasoning_effort: modelThinking.effort ?? (modelThinking.mode === "adaptive" ? "medium" : "high") } : {})
     };
   }
 
@@ -380,7 +380,7 @@ export async function probeModelCapabilities(alias: ModelAlias): Promise<ModelCa
     const turn = await completeAgentTurn(alias, [
       { role: "system", content: "This is a tool capability check. Call cwl_probe_tool with ok=true." },
       { role: "user", content: "Call the capability test tool." }
-    ], controller.signal, { tools: [probeTool], forceToolName: "cwl_probe_tool" });
+    ], controller.signal, { tools: [probeTool] });
     base.toolCalling = turn.toolCalls.some((call) => call.name === "cwl_probe_tool");
     if (!base.toolCalling) errors.push("tool calling: model returned no probe tool call");
   } catch (error) { errors.push("tool calling: " + (error instanceof Error ? error.message : "probe failed")); }

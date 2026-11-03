@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
 import { sqlite, nowIso } from "./db.js";
@@ -57,6 +58,7 @@ type WorkerTask = {
   id: string;
   description: string;
   title: string;
+  task_type: string;
   status: string;
   model_alias: "fable" | "opus" | "sonnet" | "haiku";
   execution_mode: string;
@@ -127,7 +129,7 @@ function persistPlan(taskId: string, plan: Plan): void {
       VALUES (?, ?, ?, ?, ?, 'pending', ?)
     `);
     plan.steps.forEach((step, index) => {
-      insert.run(crypto.randomUUID(), taskId, index + 1, step.title, step.description, step.tool ?? null);
+      insert.run(randomUUID(), taskId, index + 1, step.title, step.description, step.tool ?? null);
     });
     recordTaskEvent(taskId, "agent.plan_created", {
       summary: plan.summary, stepCount: plan.steps.length, acceptanceCriteria: plan.acceptanceCriteria
@@ -209,7 +211,7 @@ export async function runClaimedTask(
   const task = getTask(taskId) as WorkerTask | undefined;
   if (!task) throw new Error("Task not found.");
   if (!["planning", "running"].includes(task.status)) return;
-  if (task.workspace_id === null && task.title.toLowerCase().includes("[coding]")) {
+  if (task.task_type === "coding" && task.workspace_id === null) {
     throw new Error("Coding tasks must include an explicit workspaceId.");
   }
 

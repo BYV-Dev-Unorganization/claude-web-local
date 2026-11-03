@@ -6,7 +6,8 @@ import { nanoid } from "nanoid";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z, ZodError } from "zod";
-import { config, isProviderConfigured, publicModelConfiguration, type ModelAlias } from "./config.js";
+import { config, isAgentProviderConfigured, isProviderConfigured, publicModelConfiguration, type ModelAlias } from "./config.js";
+import { startAgentWorkers, stopAgentWorkers } from "./agent-worker.js";
 import { sqlite, nowIso } from "./db.js";
 import { ProviderError, streamCompletion, testProvider } from "./provider.js";
 import { createWorkspace, listWorkspaces, getWorkspace, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, runWorkspaceCommand } from "./workspace.js";
@@ -697,14 +698,14 @@ app.post("/api/v1/workspaces/:id/commands", async (request, reply) => {
 
 app.get("/api/v1/tools/manifest", async () => ({
   items: publicToolManifest(),
-  execution: "Registered tools are not exposed to autonomous agent execution until the durable worker and approval runtime are enabled."
+  execution: "Only tasks bound to an explicit workspace can call registered workspace tools. Mutating tools remain approval-gated by the server."
 }));
 
 app.get("/api/v1/runtime/status", async () => ({
   app: "ready",
   database: sqlite.open ? "ready" : "unavailable",
   provider: isProviderConfigured() ? "configured" : "not_configured",
-  workers: { agent: "not_installed", coding: "manual_docker_sandbox_only", browser: "not_installed", research: "not_installed", scheduler: "not_installed" },
+  workers: { agent: isAgentProviderConfigured() ? "running" : "waiting_for_provider", concurrency: config.WORKER_CONCURRENCY, coding: "docker_sandbox", browser: "not_installed", research: "not_installed", scheduler: "not_installed" },
   security: { host: config.APP_HOST, remoteExposure: config.APP_HOST === "127.0.0.1" || config.APP_HOST === "::1" ? "loopback" : "requires_perimeter_authentication" }
 }));
 
@@ -714,6 +715,7 @@ if (!hostIsLoopback) {
 }
 
 const shutdown = async () => {
+  await stopAgentWorkers();
   await app.close();
   sqlite.close();
 };
@@ -722,6 +724,9 @@ process.once("SIGTERM", () => void shutdown().then(() => process.exit(0)));
 
 try {
   await app.listen({ host: config.APP_HOST, port: config.APP_PORT });
+  if (isAgentProviderConfigured()) {
+    startAgentWorkers((error) => app.log.error({ err: error }, "Agent worker error"));
+  }
 } catch (error) {
   app.log.error(error);
   process.exitCode = 1;

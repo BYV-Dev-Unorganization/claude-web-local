@@ -96,28 +96,50 @@ export function releaseTaskLease(taskId: string, workerId: string, leaseToken: s
 export function recoverExpiredTaskLeases(at = nowIso()): { requeued: number; paused: number } {
   const recover = sqlite.transaction(() => {
     const expired = sqlite.prepare(`
-      SELECT id, status FROM tasks
+      SELECT id, status, checkpoint_json FROM tasks
       WHERE status IN ('planning', 'running')
         AND worker_lease_until IS NOT NULL AND worker_lease_until <= ?
       ORDER BY updated_at ASC
-    `).all(at) as Array<{ id: string; status: TaskStatus }>;
+    `).all(at) as Array<{ id: string; status: TaskStatus; checkpoint_json: string | null }>;
     let requeued = 0;
     let paused = 0;
     for (const task of expired) {
       const inFlight = sqlite.prepare(
         "SELECT id FROM tool_invocations WHERE task_id = ? AND status = 'running' LIMIT 1"
       ).get(task.id);
-      const nextStatus = inFlight ? "paused" : "queued";
+      let completedAfterCheckpoint = false;
+      try {
+        if (task.checkpoint_json) {
+          const checkpoint = JSON.parse(task.checkpoint_json) as {
+            pendingToolCalls?: Array<{ name?: string }>;
+            savedAt?: string;
+          };
+          const pending = Array.isArray(checkpoint.pendingToolCalls) ? checkpoint.pendingToolCalls : [];
+          const savedAt = typeof checkpoint.savedAt === "string" ? checkpoint.savedAt : "";
+          completedAfterCheckpoint = pending.some((call) => Boolean(
+            call.name && savedAt && sqlite.prepare(
+              "SELECT id FROM tool_invocations WHERE task_id = ? AND tool_name = ? AND status = 'completed' AND completed_at >= ? LIMIT 1"
+            ).get(task.id, call.name, savedAt)
+          ));
+        }
+      } catch {
+        completedAfterCheckpoint = true;
+      }
+      const uncertainSideEffect = Boolean(inFlight || completedAfterCheckpoint);
+      const nextStatus = uncertainSideEffect ? "paused" : "queued";
       sqlite.prepare(`
         UPDATE tasks SET status = ?, completed_at = NULL, worker_id = NULL,
           worker_lease_token_hash = NULL, worker_lease_until = NULL, updated_at = ?
         WHERE id = ? AND status = ? AND worker_lease_until <= ?
       `).run(nextStatus, at, task.id, task.status, at);
-      if (inFlight) paused += 1;
+      if (uncertainSideEffect) paused += 1;
       else requeued += 1;
+      recordTaskEvent(task.id, "task.status", { from: task.status, to: nextStatus, reason: "Expired worker lease reconciled." });
       recordTaskEvent(task.id, "worker.lease_expired", {
         previousStatus: task.status, recoveredStatus: nextStatus,
-        reason: inFlight ? "An invocation was still running; operator review prevents unsafe replay." : "No in-flight invocation; task returned to the durable queue."
+        reason: uncertainSideEffect
+          ? "A tool invocation was running or completed after its last checkpoint; operator review prevents unsafe replay."
+          : "No uncertain tool side effect; task returned to the durable queue."
       });
     }
     return { requeued, paused };
