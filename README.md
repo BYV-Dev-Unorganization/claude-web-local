@@ -38,11 +38,11 @@ The container runs without network access, with a read-only root filesystem, dro
 
 ## Current behavior
 
-The current slice provides streaming multi-turn chat, conversation rename and non-destructive branch/edit/regenerate flows, project editing/archiving and text-file management with lexical search, artifact editing/version restore/export and sandboxed HTML preview, explicit memory CRUD, persisted task lifecycle/approval APIs, ordered task events, permission-gated manual workspace tool execution, and a manually operated workspace explorer with a Docker-isolated command runner. Task records and approval decisions are durable, but there is not yet an autonomous planner or worker capable of planning and continuing tasks on its own.
+The current slice also includes an autonomous task runtime: provider-native Anthropic/OpenAI tool calling and structured output, per-alias capability probing and thinking controls, a structured planner, persisted plan steps/checkpoints, tool-result continuation, a bounded in-process worker pool, durable leases/heartbeats, approval pauses, and conservative recovery. Coding tasks must bind to an explicit workspaceId; workspace write/execute operations remain approval-gated and run in the isolated Docker sandbox. Task limits constrain iterations, runtime, calls, output tokens, and tool-result size.
 
-The provider API key stays in the server process. The client receives alias configuration status only. The thinking indicator is shown only when a provider emits a thinking phase; private reasoning content is never displayed.
+The provider API key stays in the server process. The client receives alias configuration status only. Workers start automatically after the API binds when provider credentials and at least one model alias are configured. Inspect configured models through GET /api/v1/models/capabilities and probe an alias with POST /api/v1/models/:alias/probe. The thinking indicator is shown only when a provider emits a thinking phase; private reasoning content is never displayed.
 
-PDF, DOCX, XLSX, images, semantic embeddings/citations, deep research, durable agent orchestration, autonomous coding-agent integration, browser automation, MCP, connector/plugin/skill execution, scheduling, multi-agent orchestration, and voice are not enabled in this slice. They are exposed as unavailable in /api/v1/capabilities rather than being simulated.
+PDF, DOCX, XLSX, images, semantic embeddings/citations, deep research, browser automation, MCP, connector/plugin/skill execution, scheduling, multi-agent orchestration, voice, Git branch/commit workflows, workspace snapshots, rollback, and production-grade multi-process recovery remain outside this slice. They are exposed as unavailable in /api/v1/capabilities rather than being simulated.
 
 ## Verification
 
