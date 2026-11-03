@@ -34,6 +34,8 @@ describe("conversation branch persistence", () => {
     const branch = createConversationBranch(conversationId, secondMessageId);
     expect(branch.copiedMessages).toBe(2);
     expect(branch.parentConversationId).toBe(conversationId);
+    expect(sqlite.prepare("SELECT parent_conversation_id, branch_message_id FROM conversations WHERE id = ?").get(branch.id))
+      .toEqual({ parent_conversation_id: conversationId, branch_message_id: secondMessageId });
     const copied = sqlite.prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC")
       .all(branch.id) as Array<{ id: string; parent_message_id: string | null; turn_id: string; content: string }>;
     expect(copied).toHaveLength(2);
@@ -47,6 +49,8 @@ describe("conversation branch persistence", () => {
   it("creates an empty branch before the first message", () => {
     const branch = createConversationBranch(conversationId, null);
     expect(branch.copiedMessages).toBe(0);
+    expect(sqlite.prepare("SELECT parent_conversation_id, branch_message_id FROM conversations WHERE id = ?").get(branch.id))
+      .toEqual({ parent_conversation_id: conversationId, branch_message_id: null });
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?").get(branch.id))
       .toEqual({ count: 0 });
   });
