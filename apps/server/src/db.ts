@@ -152,6 +152,11 @@ CREATE TABLE IF NOT EXISTS schedule_occurrences (
   occurrence_key TEXT NOT NULL UNIQUE, task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
   scheduled_for TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS worker_instances (
+  id TEXT PRIMARY KEY, worker_type TEXT NOT NULL, process_id INTEGER NOT NULL,
+  status TEXT NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, stopped_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_worker_instances_health ON worker_instances(worker_type, status, heartbeat_at);
 CREATE TABLE IF NOT EXISTS model_usage (
   id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
   task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL, model_alias TEXT NOT NULL,
@@ -187,6 +192,7 @@ recordSchemaVersion.run(1, migrationTime);
 recordSchemaVersion.run(2, migrationTime);
 recordSchemaVersion.run(3, migrationTime);
 recordSchemaVersion.run(4, migrationTime);
+recordSchemaVersion.run(5, migrationTime);
 
 export const db = drizzle(sqlite);
 

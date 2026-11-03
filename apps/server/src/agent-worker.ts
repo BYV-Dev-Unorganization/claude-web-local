@@ -366,6 +366,8 @@ export async function runClaimedTask(
 }
 
 const activeControllers = new Set<AbortController>();
+const workerInstanceId = randomUUID();
+let instanceHeartbeat: NodeJS.Timeout | null = null;
 let workerLoops: Promise<void>[] = [];
 let stopping = false;
 let started = false;
@@ -403,6 +405,14 @@ export function startAgentWorkers(onError: (error: unknown) => void = () => unde
   if (started) return;
   started = true;
   stopping = false;
+  const timestamp = nowIso();
+  sqlite.prepare("INSERT INTO worker_instances (id, worker_type, process_id, status, started_at, heartbeat_at) VALUES (?, 'agent', ?, 'running', ?, ?)")
+    .run(workerInstanceId, process.pid, timestamp, timestamp);
+  instanceHeartbeat = setInterval(() => {
+    sqlite.prepare("UPDATE worker_instances SET heartbeat_at = ? WHERE id = ? AND status = 'running'")
+      .run(nowIso(), workerInstanceId);
+  }, 10000);
+  instanceHeartbeat.unref();
   workerLoops = Array.from({ length: config.WORKER_CONCURRENCY }, (_, index) => {
     const workerId = "agent-" + process.pid + "-" + (index + 1);
     return (async () => {
@@ -425,6 +435,10 @@ export function startAgentWorkers(onError: (error: unknown) => void = () => unde
 
 export async function stopAgentWorkers(): Promise<void> {
   stopping = true;
+  if (instanceHeartbeat) clearInterval(instanceHeartbeat);
+  instanceHeartbeat = null;
+  sqlite.prepare("UPDATE worker_instances SET status = 'stopped', stopped_at = ?, heartbeat_at = ? WHERE id = ?")
+    .run(nowIso(), nowIso(), workerInstanceId);
   for (const controller of activeControllers) controller.abort(new Error("Server is shutting down."));
   await Promise.allSettled(workerLoops);
   workerLoops = [];

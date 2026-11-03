@@ -52,6 +52,7 @@ const schema = z.object({
   TTS_API_KEY: optionalText,
   APP_ENCRYPTION_KEY: optionalText,
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
+  AGENT_WORKER_MODE: z.enum(["embedded", "external", "disabled"]).default("embedded"),
   TASK_MAX_ITERATIONS: z.coerce.number().int().min(1).max(200).default(30),
   TASK_MAX_RUNTIME_SECONDS: z.coerce.number().int().min(10).max(86400).default(1800),
   TASK_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(1000).default(100),
