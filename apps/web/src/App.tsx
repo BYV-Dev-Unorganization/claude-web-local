@@ -17,6 +17,7 @@ type Message = { id: string; role: "user" | "assistant"; content: string; status
 type Project = { id: string; name: string; description?: string; instructions?: string };
 type ProjectFile = { id: string; original_name: string; mime_type: string; size_bytes: number; status: string; created_at: string };
 type Artifact = { id: string; title: string; artifact_type: string; current_version: number; updated_at: string };
+type ArtifactVersion = { id: string; version_number: number; content_hash: string; created_at: string };
 type Memory = { id: string; content: string; scope: string; memory_type: string; project_id?: string | null };
 type ModelInfo = { alias: Alias; configured: boolean; isDefault: boolean };
 
@@ -61,7 +62,8 @@ export default function App() {
   const [toolInputJson, setToolInputJson] = useState("{}");
   const [toolOutput, setToolOutput] = useState<string | null>(null);
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
-  const [selectedArtifact, setSelectedArtifact] = useState<{ title: string; artifact_type: string; content: string; id: string } | null>(null);
+  const [selectedArtifact, setSelectedArtifact] = useState<{ title: string; artifact_type: string; content: string; id: string; current_version: number } | null>(null);
+  const [artifactVersions, setArtifactVersions] = useState<ArtifactVersion[]>([]);
   const [search, setSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ fileName: string; text: string; chunkIndex: number }>>([]);
@@ -362,9 +364,58 @@ export default function App() {
 
   const openArtifact = async (artifactId: string) => {
     try {
-      const result = await api<{ id: string; title: string; artifact_type: string; version: { content: string } }>("/api/v1/artifacts/" + artifactId);
-      setSelectedArtifact({ id: result.id, title: result.title, artifact_type: result.artifact_type, content: result.version.content });
+      const [result, versions] = await Promise.all([
+        api<{ id: string; title: string; artifact_type: string; current_version: number; version: { content: string } }>("/api/v1/artifacts/" + artifactId),
+        api<{ items: ArtifactVersion[] }>("/api/v1/artifacts/" + artifactId + "/versions")
+      ]);
+      setSelectedArtifact({ id: result.id, title: result.title, artifact_type: result.artifact_type, content: result.version.content, current_version: result.current_version });
+      setArtifactVersions(versions.items);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to open artifact."); }
+  };
+
+  const saveArtifactVersion = async () => {
+    if (!selectedArtifact) return;
+    try {
+      await api("/api/v1/artifacts/" + selectedArtifact.id + "/versions", {
+        method: "POST", body: JSON.stringify({ content: selectedArtifact.content })
+      });
+      await refreshArtifacts();
+      await openArtifact(selectedArtifact.id);
+      setNotice("A new artifact version was saved.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Artifact version save failed."); }
+  };
+
+  const restoreArtifactVersion = async (versionId: string) => {
+    if (!selectedArtifact) return;
+    try {
+      await api("/api/v1/artifacts/" + selectedArtifact.id + "/restore/" + versionId, { method: "POST", body: JSON.stringify({}) });
+      await refreshArtifacts();
+      await openArtifact(selectedArtifact.id);
+      setNotice("Artifact version restored.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Artifact restore failed."); }
+  };
+
+  const deleteArtifact = async () => {
+    if (!selectedArtifact) return;
+    try {
+      await api("/api/v1/artifacts/" + selectedArtifact.id, { method: "DELETE" });
+      setSelectedArtifact(null);
+      setArtifactVersions([]);
+      await refreshArtifacts();
+      setNotice("Artifact deleted.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Artifact deletion failed."); }
+  };
+
+  const downloadArtifact = () => {
+    if (!selectedArtifact) return;
+    const extension = ({ html: "html", css: "css", javascript: "js", svg: "svg", markdown: "md", json: "json" } as Record<string, string>)[selectedArtifact.artifact_type] ?? "txt";
+    const blob = new Blob([selectedArtifact.content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = selectedArtifact.title.replace(/[^a-z0-9._-]+/gi, "-") + "." + extension;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const startManualTask = async () => {
@@ -622,9 +673,12 @@ export default function App() {
               </div>
             </div>
             {selectedArtifact && <div className="panel preview-panel">
-              <div className="panel-heading"><div><h2>{selectedArtifact.title}</h2><p>{selectedArtifact.artifact_type} source</p></div><button className="secondary-button" onClick={() => setSelectedArtifact(null)}>Close</button></div>
-              <pre className="artifact-source"><code>{selectedArtifact.content}</code></pre>
+              <div className="panel-heading"><div><h2>{selectedArtifact.title}</h2><p>{selectedArtifact.artifact_type} · current version {selectedArtifact.current_version}</p></div><div className="workspace-actions"><button className="secondary-button" onClick={downloadArtifact}>Download</button><button className="secondary-button" onClick={() => void deleteArtifact()}>Delete</button><button className="secondary-button" onClick={() => setSelectedArtifact(null)}>Close</button></div></div>
+              <label>Artifact source<textarea className="code-input" spellCheck={false} value={selectedArtifact.content} onChange={(event) => setSelectedArtifact({ ...selectedArtifact, content: event.target.value })} rows={14} /></label>
+              <div className="workspace-actions"><button className="primary-button" onClick={() => void saveArtifactVersion()}>Save new version</button><span className="muted">Version history is retained in persistent storage.</span></div>
               {selectedArtifact.artifact_type === "html" && <iframe title={selectedArtifact.title + " preview"} className="artifact-preview" sandbox="" srcDoc={selectedArtifact.content} />}
+              <div className="panel-heading"><h3>Version history</h3></div>
+              <div className="project-list">{artifactVersions.map((version) => <article className="memory-card" key={version.id}><div><strong>Version {version.version_number}{version.version_number === selectedArtifact.current_version ? " · current" : ""}</strong><small>{new Date(version.created_at).toLocaleString()} · {version.content_hash.slice(0, 12)}</small></div>{version.version_number !== selectedArtifact.current_version && <button className="secondary-button" onClick={() => void restoreArtifactVersion(version.id)}>Restore</button>}</article>)}</div>
             </div>}
           </section>
         )}
