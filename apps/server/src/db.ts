@@ -13,7 +13,7 @@ sqlite.pragma("foreign_keys = ON");
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("busy_timeout = 5000");
 
-sqlite.exec(String.raw\`
+sqlite.exec(String.raw`
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
   applied_at TEXT NOT NULL
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS model_usage (
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(message_id UNINDEXED, conversation_id UNINDEXED, content);
 CREATE VIRTUAL TABLE IF NOT EXISTS file_search USING fts5(file_id UNINDEXED, project_id UNINDEXED, content);
-\`);
+`);
 
 export const db = drizzle(sqlite);
 
