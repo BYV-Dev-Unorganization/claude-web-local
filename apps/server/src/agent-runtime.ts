@@ -18,6 +18,7 @@ const taskInputSchema = z.object({
   description: z.string().trim().min(1).max(20000),
   projectId: z.string().uuid().optional(),
   conversationId: z.string().uuid().optional(),
+  workspaceId: z.string().uuid().optional(),
   parentTaskId: z.string().uuid().optional(),
   taskType: z.enum(taskTypes).default("general"),
   modelAlias: z.enum(["fable", "opus", "sonnet", "haiku"]).default(config.AI_DEFAULT_MODEL),
@@ -32,7 +33,7 @@ type TaskRow = {
   id: string; project_id: string | null; conversation_id: string | null; parent_task_id: string | null;
   title: string; description: string; status: TaskStatus; task_type: TaskType; model_alias: ModelAlias;
   execution_mode: string; iteration_limit: number; token_budget: number | null;
-  time_limit_seconds: number | null; checkpoint_json: string | null; created_at: string;
+  time_limit_seconds: number | null; checkpoint_json: string | null; workspace_id: string | null; created_at: string;
   started_at: string | null; completed_at: string | null; updated_at: string;
 };
 
@@ -103,6 +104,9 @@ export function createTask(input: CreateTaskInput): TaskRow {
   if (body.conversationId && !sqlite.prepare("SELECT id FROM conversations WHERE id = ?").get(body.conversationId)) {
     throw new Error("Conversation not found.");
   }
+  if (body.workspaceId && !sqlite.prepare("SELECT id FROM workspaces WHERE id = ?").get(body.workspaceId)) {
+    throw new Error("Workspace not found.");
+  }
   if (body.parentTaskId && !sqlite.prepare("SELECT id FROM tasks WHERE id = ?").get(body.parentTaskId)) {
     throw new Error("Parent task not found.");
   }
@@ -112,12 +116,12 @@ export function createTask(input: CreateTaskInput): TaskRow {
   const insert = sqlite.transaction(() => {
     sqlite.prepare(`
       INSERT INTO tasks (
-        id, project_id, conversation_id, parent_task_id, title, description, status,
+        id, project_id, conversation_id, parent_task_id, workspace_id, title, description, status,
         task_type, model_alias, execution_mode, iteration_limit, token_budget,
         time_limit_seconds, checkpoint_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, NULL, ?, ?)
     `).run(
-      taskId, body.projectId ?? null, body.conversationId ?? null, body.parentTaskId ?? null,
+      taskId, body.projectId ?? null, body.conversationId ?? null, body.parentTaskId ?? null, body.workspaceId ?? null,
       body.title, body.description, body.taskType, body.modelAlias, body.executionMode,
       body.iterationLimit, body.tokenBudget ?? null, body.timeLimitSeconds, timestamp, timestamp
     );
@@ -177,6 +181,7 @@ export function retryTask(taskId: string): TaskRow {
     description: original.description,
     ...(original.project_id ? { projectId: original.project_id } : {}),
     ...(original.conversation_id ? { conversationId: original.conversation_id } : {}),
+    ...(original.workspace_id ? { workspaceId: original.workspace_id } : {}),
     parentTaskId: original.parent_task_id ?? original.id,
     taskType: original.task_type,
     modelAlias: original.model_alias,

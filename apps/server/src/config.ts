@@ -23,6 +23,19 @@ const schema = z.object({
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(131072).default(8192),
   AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(180000),
   AI_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  AI_THINKING_MODE_FABLE: z.enum(["off", "enabled", "adaptive"]).default("off"),
+  AI_THINKING_MODE_OPUS: z.enum(["off", "enabled", "adaptive"]).default("off"),
+  AI_THINKING_MODE_SONNET: z.enum(["off", "enabled", "adaptive"]).default("off"),
+  AI_THINKING_MODE_HAIKU: z.enum(["off", "enabled", "adaptive"]).default("off"),
+  AI_THINKING_BUDGET_FABLE: z.coerce.number().int().min(1024).max(65536).default(4096),
+  AI_THINKING_BUDGET_OPUS: z.coerce.number().int().min(1024).max(65536).default(4096),
+  AI_THINKING_BUDGET_SONNET: z.coerce.number().int().min(1024).max(65536).default(4096),
+  AI_THINKING_BUDGET_HAIKU: z.coerce.number().int().min(1024).max(65536).default(4096),
+  AI_REASONING_EFFORT_FABLE: z.preprocess((value) => value === "" ? undefined : value, z.enum(["low", "medium", "high"]).optional()),
+  AI_REASONING_EFFORT_OPUS: z.preprocess((value) => value === "" ? undefined : value, z.enum(["low", "medium", "high"]).optional()),
+  AI_REASONING_EFFORT_SONNET: z.preprocess((value) => value === "" ? undefined : value, z.enum(["low", "medium", "high"]).optional()),
+  AI_REASONING_EFFORT_HAIKU: z.preprocess((value) => value === "" ? undefined : value, z.enum(["low", "medium", "high"]).optional()),
+  TASK_MAX_TOOL_RESULT_BYTES: z.coerce.number().int().min(1024).max(1048576).default(65536),
   DATABASE_URL: z.string().default("file:./data/claude-web-local.sqlite"),
   STORAGE_PATH: z.string().default("./data/storage"),
   WORKSPACE_PATH: z.string().default("./data/workspaces"),
@@ -81,6 +94,12 @@ export const config = {
     opus: env.AI_MODEL_OPUS,
     sonnet: env.AI_MODEL_SONNET,
     haiku: env.AI_MODEL_HAIKU
+  },
+  modelThinking: {
+    fable: { mode: env.AI_THINKING_MODE_FABLE, budgetTokens: env.AI_THINKING_BUDGET_FABLE, effort: env.AI_REASONING_EFFORT_FABLE },
+    opus: { mode: env.AI_THINKING_MODE_OPUS, budgetTokens: env.AI_THINKING_BUDGET_OPUS, effort: env.AI_REASONING_EFFORT_OPUS },
+    sonnet: { mode: env.AI_THINKING_MODE_SONNET, budgetTokens: env.AI_THINKING_BUDGET_SONNET, effort: env.AI_REASONING_EFFORT_SONNET },
+    haiku: { mode: env.AI_THINKING_MODE_HAIKU, budgetTokens: env.AI_THINKING_BUDGET_HAIKU, effort: env.AI_REASONING_EFFORT_HAIKU }
   }
 } as const;
 

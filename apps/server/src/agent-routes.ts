@@ -5,6 +5,8 @@ import {
   listTaskSteps, listTasks, pauseTask, resumeTask, retryTask, startTask, taskStatuses
 } from "./agent-runtime.js";
 import { executeTaskTool } from "./agent-executor.js";
+import { type ModelAlias } from "./config.js";
+import { cachedModelCapabilities, probeModelCapabilities } from "./provider.js";
 
 function reportError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : "Task operation failed.";
@@ -22,6 +24,10 @@ function reportError(reply: FastifyReply, error: unknown) {
 }
 
 const idSchema = z.string().uuid();
+function publicTask<T extends { checkpoint_json?: string | null }>(task: T) {
+  const { checkpoint_json: _privateCheckpoint, ...safe } = task;
+  return safe;
+}
 const agentRoutes: FastifyPluginAsync = async (app) => {
   app.post("/api/v1/tasks", async (request, reply) => {
     try {
@@ -38,7 +44,7 @@ const agentRoutes: FastifyPluginAsync = async (app) => {
         limit: z.coerce.number().int().min(1).max(100).default(50),
         status: z.enum(taskStatuses).optional()
       }).parse(request.query);
-      return { items: listTasks(query.limit, query.status) };
+      return { items: listTasks(query.limit, query.status).map(publicTask) };
     } catch (error) {
       return reportError(reply, error);
     }
@@ -49,7 +55,7 @@ const agentRoutes: FastifyPluginAsync = async (app) => {
       const id = idSchema.parse((request.params as { id: string }).id);
       const task = getTask(id);
       if (!task) return reply.code(404).send({ error: { code: "not_found", message: "Task not found." } });
-      return task;
+      return publicTask(task);
     } catch (error) {
       return reportError(reply, error);
     }
@@ -99,6 +105,17 @@ const agentRoutes: FastifyPluginAsync = async (app) => {
       const toolName = z.string().min(1).max(160).parse(params.toolName);
       const body = z.object({ input: z.unknown() }).parse(request.body ?? {});
       return await executeTaskTool(taskId, workspaceId, toolName, body.input);
+    } catch (error) {
+      return reportError(reply, error);
+    }
+  });
+
+  app.get("/api/v1/models/capabilities", async () => ({ items: cachedModelCapabilities() }));
+
+  app.post("/api/v1/models/:alias/probe", async (request, reply) => {
+    try {
+      const alias = z.enum(["fable", "opus", "sonnet", "haiku"]).parse((request.params as { alias: string }).alias) as ModelAlias;
+      return await probeModelCapabilities(alias);
     } catch (error) {
       return reportError(reply, error);
     }

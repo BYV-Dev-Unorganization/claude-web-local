@@ -44,12 +44,13 @@ export function claimNextTask(workerId: string, leaseSeconds = 60): ClaimedTask 
     `).get(timestamp) as { id: string } | undefined;
     if (!candidate) return null;
     const result = sqlite.prepare(`
-      UPDATE tasks SET worker_id = ?, worker_lease_token_hash = ?,
+      UPDATE tasks SET status = 'planning', worker_id = ?, worker_lease_token_hash = ?,
         worker_lease_until = ?, worker_attempts = worker_attempts + 1, updated_at = ?
       WHERE id = ? AND status = 'queued'
         AND (worker_lease_until IS NULL OR worker_lease_until <= ?)
     `).run(workerId, tokenHash(leaseToken), leaseUntil, timestamp, candidate.id, timestamp);
     if (result.changes !== 1) return null;
+    recordTaskEvent(candidate.id, "task.status", { from: "queued", to: "planning", reason: "Claimed by durable worker." });
     recordTaskEvent(candidate.id, "worker.claimed", {
       workerId, leaseUntil,
       attempt: (sqlite.prepare("SELECT worker_attempts FROM tasks WHERE id = ?").get(candidate.id) as { worker_attempts: number }).worker_attempts
@@ -72,7 +73,7 @@ export function heartbeatTaskLease(taskId: string, workerId: string, leaseToken:
     WHERE id = ? AND worker_id = ? AND worker_lease_token_hash = ?
       AND worker_lease_until > ? AND status IN ('queued', 'planning', 'running')
   `).run(leaseUntil, timestamp, taskId, workerId, tokenHash(leaseToken), timestamp);
-  if (result.changes !== 1) throw new Error("Worker lease is missing, expired, or owned by another worker.");
+  if (result.changes !== 1) throw new Error("Worker lease is not owned by this worker; it is missing, expired, or belongs to another worker.");
   recordTaskEvent(taskId, "worker.heartbeat", { workerId, leaseUntil });
   return leaseUntil;
 }

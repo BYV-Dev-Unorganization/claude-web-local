@@ -177,12 +177,16 @@ if (!hasTaskColumn("worker_id")) sqlite.exec("ALTER TABLE tasks ADD COLUMN worke
 if (!hasTaskColumn("worker_lease_token_hash")) sqlite.exec("ALTER TABLE tasks ADD COLUMN worker_lease_token_hash TEXT");
 if (!hasTaskColumn("worker_attempts")) sqlite.exec("ALTER TABLE tasks ADD COLUMN worker_attempts INTEGER NOT NULL DEFAULT 0");
 sqlite.exec("CREATE INDEX IF NOT EXISTS idx_tasks_worker_claim ON tasks(status, worker_lease_until, created_at)");
+const taskWorkspaceColumns = sqlite.pragma("table_info(tasks)") as Array<{ name: string }>;
+if (!taskWorkspaceColumns.some((column) => column.name === "workspace_id")) sqlite.exec("ALTER TABLE tasks ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL");
+sqlite.exec("CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)");
 
 const recordSchemaVersion = sqlite.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)");
 const migrationTime = new Date().toISOString();
 recordSchemaVersion.run(1, migrationTime);
 recordSchemaVersion.run(2, migrationTime);
 recordSchemaVersion.run(3, migrationTime);
+recordSchemaVersion.run(4, migrationTime);
 
 export const db = drizzle(sqlite);
 

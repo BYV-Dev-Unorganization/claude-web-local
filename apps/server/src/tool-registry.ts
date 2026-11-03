@@ -113,3 +113,8 @@ export async function executeTool(name: string, input: unknown, workspace: Works
   const validated = tool.inputSchema.parse(input);
   return await tool.execute(validated, workspace);
 }
+
+/** JSON Schema used by provider tool-calling adapters. */
+export function agentToolDefinitions() {
+  return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: z.toJSONSchema(tool.inputSchema) as Record<string, unknown> }));
+}
