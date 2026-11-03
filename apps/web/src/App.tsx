@@ -15,6 +15,7 @@ type TaskEvent = { id: string; sequence: number; event_type: string; payload_jso
 type Conversation = { id: string; title: string; model_alias: Alias; project_id?: string | null; updated_at: string };
 type Message = { id: string; role: "user" | "assistant"; content: string; status: string; created_at?: string };
 type Project = { id: string; name: string; description?: string; instructions?: string };
+type ProjectFile = { id: string; original_name: string; mime_type: string; size_bytes: number; status: string; created_at: string };
 type Artifact = { id: string; title: string; artifact_type: string; current_version: number; updated_at: string };
 type Memory = { id: string; content: string; scope: string; memory_type: string; project_id?: string | null };
 type ModelInfo = { alias: Alias; configured: boolean; isDefault: boolean };
@@ -46,6 +47,7 @@ export default function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [provider, setProvider] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>("");
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -69,6 +71,7 @@ export default function App() {
   const [runtime, setRuntime] = useState<Record<string, unknown> | null>(null);
   const [capabilities, setCapabilities] = useState<Record<string, { available: boolean; reason?: string }> | null>(null);
   const [newProject, setNewProject] = useState({ name: "", description: "", instructions: "" });
+  const [editingProject, setEditingProject] = useState({ name: "", description: "", instructions: "" });
   const [newArtifact, setNewArtifact] = useState({ title: "", artifactType: "html", content: "" });
   const [newMemory, setNewMemory] = useState({ content: "", scope: "global", projectId: "" });
   const [newTask, setNewTask] = useState({ title: "", description: "", taskType: "general", modelAlias: "sonnet" as Alias, executionMode: "approve-each" });
@@ -83,6 +86,10 @@ export default function App() {
   const refreshProjects = useCallback(async () => {
     const result = await api<{ items: Project[] }>("/api/v1/projects");
     setProjects(result.items);
+  }, []);
+  const refreshProjectFiles = useCallback(async (projectId: string) => {
+    const result = await api<{ items: ProjectFile[] }>("/api/v1/projects/" + projectId + "/files");
+    setProjectFiles(result.items);
   }, []);
   const refreshArtifacts = useCallback(async () => {
     const result = await api<{ items: Artifact[] }>("/api/v1/artifacts");
@@ -115,6 +122,13 @@ export default function App() {
     const result = await api<{ items: TaskEvent[] }>("/api/v1/tasks/" + taskId + "/events?limit=200");
     setTaskEvents(result.items);
   }, []);
+
+  useEffect(() => {
+    if (selectedProject) void refreshProjectFiles(selectedProject).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : "Unable to load project files.");
+    });
+    else setProjectFiles([]);
+  }, [selectedProject, refreshProjectFiles]);
 
   useEffect(() => {
     Promise.all([
@@ -280,12 +294,44 @@ export default function App() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Project creation failed."); }
   };
 
+  const updateProject = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedProject) return;
+    try {
+      await api("/api/v1/projects/" + selectedProject, { method: "PATCH", body: JSON.stringify(editingProject) });
+      await refreshProjects();
+      setNotice("Project settings updated.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Project update failed."); }
+  };
+
+  const archiveProject = async () => {
+    if (!selectedProject) return;
+    try {
+      await api("/api/v1/projects/" + selectedProject, { method: "DELETE" });
+      setSelectedProject("");
+      setProjectFiles([]);
+      setSearchResults([]);
+      await refreshProjects();
+      setNotice("Project archived.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Project archive failed."); }
+  };
+
+  const removeProjectFile = async (fileId: string) => {
+    if (!selectedProject) return;
+    try {
+      await api("/api/v1/projects/" + selectedProject + "/files/" + fileId, { method: "DELETE" });
+      await refreshProjectFiles(selectedProject);
+      setNotice("Project file removed.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "File removal failed."); }
+  };
+
   const uploadProjectFile = async (file: File) => {
     if (!selectedProject) { setError("Select a project before uploading a file."); return; }
     const form = new FormData();
     form.append("file", file);
     try {
       await api("/api/v1/projects/" + selectedProject + "/files", { method: "POST", body: form });
+      await refreshProjectFiles(selectedProject);
       setNotice("File indexed successfully.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "File upload failed."); }
   };
@@ -518,12 +564,23 @@ export default function App() {
               <div className="panel">
                 <h2>Your projects <span className="count">{projects.length}</span></h2>
                 {projects.length === 0 ? <p className="empty-copy">Projects you create will appear here.</p> : <div className="project-list">
-                  {projects.map((project) => <button className={selectedProject === project.id ? "project-card chosen" : "project-card"} key={project.id} onClick={() => setSelectedProject(project.id)}>
+                  {projects.map((project) => <button className={selectedProject === project.id ? "project-card chosen" : "project-card"} key={project.id} onClick={() => { setSelectedProject(project.id); setEditingProject({ name: project.name, description: project.description ?? "", instructions: project.instructions ?? "" }); }}>
                     <span className="project-card-icon">▤</span><span><strong>{project.name}</strong><small>{project.description || "No description"}</small></span><span className="arrow">→</span>
                   </button>)}
                 </div>}
               </div>
             </div>
+            {selectedProject && (
+              <div className="panel">
+                <div className="panel-heading"><div><h2>Project settings</h2><p>Update project instructions or archive this project.</p></div></div>
+                <form className="stack-form" onSubmit={(event) => void updateProject(event)}>
+                  <label>Name<input required value={editingProject.name} onChange={(event) => setEditingProject({ ...editingProject, name: event.target.value })} /></label>
+                  <label>Description<textarea rows={2} value={editingProject.description} onChange={(event) => setEditingProject({ ...editingProject, description: event.target.value })} /></label>
+                  <label>Project instructions<textarea rows={4} value={editingProject.instructions} onChange={(event) => setEditingProject({ ...editingProject, instructions: event.target.value })} /></label>
+                  <div className="workspace-actions"><button className="primary-button" type="submit">Save project</button><button className="secondary-button" type="button" onClick={() => void archiveProject()}>Archive project</button></div>
+                </form>
+              </div>
+            )}
             <div className="panel file-panel">
               <div className="panel-heading"><div><h2>Project knowledge</h2><p>Text, Markdown, CSV, JSON, and source-code indexing with lexical retrieval.</p></div>
                 <label className="upload-button">＋ Upload file<input type="file" hidden accept=".txt,.md,.markdown,.json,.csv,.ts,.tsx,.js,.jsx,.py,.go,.rs,.java,.html,.css,.xml,.yaml,.yml,.toml,.sql" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadProjectFile(file); event.currentTarget.value = ""; }} /></label>
@@ -531,6 +588,13 @@ export default function App() {
               <div className="inline-search"><input value={projectSearch} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Search indexed project files" /><button className="secondary-button" disabled={!selectedProject || !projectSearch.trim()} onClick={(event) => { event.preventDefault(); void searchProject(event as unknown as FormEvent); }}>Search</button></div>
               {searchResults.length > 0 && <div className="search-results">{searchResults.map((item, index) => <div className="search-result" key={item.fileName + index}><strong>{item.fileName} · chunk {item.chunkIndex + 1}</strong><p>{item.text}</p></div>)}</div>}
               {!selectedProject && <p className="empty-copy">Select a project above to upload files or search its knowledge base.</p>}
+              {selectedProject && (
+                <div className="search-results">
+                  <div className="panel-heading"><h3>Indexed files <span className="count">{projectFiles.length}</span></h3><button className="secondary-button" onClick={() => void refreshProjectFiles(selectedProject)}>Refresh files</button></div>
+                  {projectFiles.length === 0 ? <p className="empty-copy">No indexed files in this project.</p> : projectFiles.map((file) => <div className="search-result" key={file.id}><div className="panel-heading"><strong>{file.original_name}</strong><button className="icon-button" onClick={() => void removeProjectFile(file.id)}>Remove</button></div><small>{Math.round(file.size_bytes / 1024)} KB · {file.status} · {new Date(file.created_at).toLocaleString()}</small></div>)}
+                </div>
+              )}
+
             </div>
           </section>
         )}
