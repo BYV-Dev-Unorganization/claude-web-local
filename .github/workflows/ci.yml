@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [feat/full-claude-web-local]
+  pull_request:
+    branches: [feat/full-claude-web-local, docs/full-planning-claude-web-local]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Build coding sandbox image
+        run: npm run build:sandbox
+      - name: Sandbox smoke test
+        run: docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 256m --cpus 1 cwl-coding-sandbox:local node -e "console.log('sandbox-ready')"
+      - name: Type-check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build

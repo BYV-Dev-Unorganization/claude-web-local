@@ -260,3 +260,13 @@ Task detail view must show:
 - Tool timeout: terminate worker process and mark step timed out.
 - Uncertain external side effect: require human review; never blindly repeat.
 - Budget exhaustion: stop with a clear explanation.
+
+## Implementation in the current branch
+
+The current implementation has a provider-neutral planner/execution loop backed by Anthropic Messages and OpenAI Chat Completions. The planner uses structured JSON output and Zod validation, stores ordered steps, and dispatches only registered tools. Assistant tool-call messages and tool results are preserved in the conversation checkpoint so the next model turn continues with the actual tool result.
+
+Workers run as a bounded in-process pool started after the API server binds, when provider credentials and at least one model alias are configured. Each worker atomically claims a task, heartbeats its hashed lease, and releases the lease after completion or approval wait. Shutdown aborts active model calls and allows lease reconciliation after restart. Task API responses omit the private checkpoint payload.
+
+The worker enforces iteration, runtime, tool-call, output-token, and tool-result size limits. Mutating workspace operations remain exact-payload approval-gated, and coding tasks require an explicit workspace ID. Expired tasks are requeued only when replay is safe; running or completed-after-checkpoint tool invocations pause the task for operator review.
+
+Release gates still open: a separately deployed OS worker mode, multi-process concurrency/soak testing, live provider contract checks for each configured model, database upgrade matrix tests, and hard process-kill E2E recovery tests. This implementation should not be described as production-grade crash recovery until those gates pass.

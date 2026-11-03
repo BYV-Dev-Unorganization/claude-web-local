@@ -1,20 +1,69 @@
 # Claude Web Local
 
-A local-first AI workspace inspired by the capabilities of Claude Web.
+A local-first AI workspace for chat, projects, knowledge files, artifacts, and explicit memory.
 
-## Project status
+> This branch is an implementation slice, not a claim that the complete product roadmap is finished. See the implementation status in docs/IMPLEMENTATION-STATUS.md.
 
-This repository is being initialized. The product requirements, architecture, API contracts, security model, and implementation roadmap are maintained in the project documentation.
+## Requirements
 
-## Scope decisions
+- Node.js 22 or newer
+- npm 10 or newer
+- A provider endpoint implementing either Anthropic Messages or OpenAI Chat Completions
 
-- Local-first, self-hosted application.
-- No application-level login or logout flow.
-- No Computer Use feature.
-- Provider endpoint, API key, and model IDs are configured through environment variables.
-- Model aliases: `fable`, `opus`, `sonnet`, and `haiku`.
-- Browser automation is in scope; desktop/computer control is not.
+## Install
 
-## Documentation
+    git clone --branch feat/full-claude-web-local https://github.com/BYV-Dev-Unorganization/claude-web-local.git
+    cd claude-web-local
+    npm install
+    cp .env.example .env
 
-The complete planning specification is being added under `docs/` on the dedicated planning branch.
+Edit .env. Set AI_PROVIDER, AI_PROTOCOL, AI_BASE_URL, AI_API_KEY, all four model IDs (AI_MODEL_FABLE, AI_MODEL_OPUS, AI_MODEL_SONNET, AI_MODEL_HAIKU), and AI_DEFAULT_MODEL. Model IDs are provider-specific; do not copy example names literally.
+
+## Run
+
+    npm run dev
+
+- Web UI: http://127.0.0.1:5173
+- API: http://127.0.0.1:3000
+- Liveness: http://127.0.0.1:3000/api/v1/health
+- Readiness: http://127.0.0.1:3000/api/v1/ready
+
+The API binds to 127.0.0.1 by default. There is intentionally no application login/logout. Do not bind to a public interface or expose the service over a tunnel unless a VPN or authenticated reverse proxy protects it.
+
+For the restricted coding command runner, install Docker and build the worker image once:
+
+    npm run build:sandbox
+
+The container runs without network access, with a read-only root filesystem, dropped Linux capabilities, CPU/memory/PID limits, and only the selected workspace mounted. The coding UI asks for explicit confirmation before writes and commands.
+
+## Current behavior
+
+The current slice also includes an autonomous task runtime: provider-native Anthropic/OpenAI tool calling and structured output, per-alias capability probing and thinking controls, a structured planner, persisted plan steps/checkpoints, tool-result continuation, a bounded worker pool, durable leases/heartbeats, approval pauses, and conservative recovery. Coding tasks must bind to an explicit workspaceId; workspace write/execute operations remain approval-gated and run in the isolated Docker sandbox. Task limits constrain iterations, runtime, calls, output tokens, and tool-result size.
+
+The provider API key stays in the server process. The client receives alias configuration status only. Set AGENT_WORKER_MODE=embedded to start workers with the API, or set AGENT_WORKER_MODE=external and run npm run dev:worker --workspace @cwl/server (or npm run start:worker --workspace @cwl/server after building). The API runtime status endpoint reports live worker heartbeats. Inspect configured models through GET /api/v1/models/capabilities and probe an alias with POST /api/v1/models/:alias/probe. The thinking indicator is shown only when a provider emits a thinking phase; private reasoning content is never displayed.
+
+PDF, DOCX, XLSX, images, semantic embeddings/citations, deep research, browser automation, MCP, connector/plugin/skill execution, scheduling, multi-agent orchestration, voice, Git branch/commit workflows, workspace snapshots, rollback, and production-grade multi-process recovery remain outside this slice. They are exposed as unavailable in /api/v1/capabilities rather than being simulated.
+
+## Verification
+
+    npm run typecheck
+    npm test
+    npm run build
+
+GitHub Actions runs the same checks for pushes to feat/full-claude-web-local. A test result must be read from the actual workflow run; local commands are not claimed to have been executed by the GitHub connector.
+
+## Storage and secrets
+
+- .env contains provider secrets and is ignored by Git.
+- data/ contains the SQLite database and uploaded files and is ignored by Git.
+- Only text-like files are accepted by the initial ingestion adapter.
+- The API's default CORS policy accepts local browser origins only.
+
+## Architecture and scope
+
+- Product overview: docs/00-OVERVIEW.md
+- System architecture: docs/04-ARCHITECTURE.md
+- Database ERD: docs/05-DATABASE-ERD.md
+- Security model: docs/09-SECURITY.md
+- Implementation status: docs/IMPLEMENTATION-STATUS.md
+- ADR 0001: docs/adr/0001-runtime-foundation.md
