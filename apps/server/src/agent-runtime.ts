@@ -244,7 +244,7 @@ export function decideApproval(approvalId: string, approved: boolean, reason?: s
       sqlite.prepare("UPDATE approvals SET status = 'expired' WHERE id = ?").run(approvalId);
       const task = getTask(approval.task_id);
       if (task?.status === "waiting_approval") transitionWithinTransaction(task.id, "paused", "Approval expired.");
-      throw new Error("Approval has expired.");
+      return { expired: true as const };
     }
     if (approvalDigest(approval.action_name, approval.target_json) !== approval.payload_hash) {
       throw new Error("Approval payload integrity check failed.");
@@ -258,9 +258,11 @@ export function decideApproval(approvalId: string, approved: boolean, reason?: s
     transitionWithinTransaction(task.id, approved ? "queued" : "paused",
       approved ? "Operator approved the exact pending action." : "Operator rejected the pending action.");
     recordTaskEvent(task.id, "approval." + status, { approvalId, reason: reason?.slice(0, 1000) ?? null });
-    return sqlite.prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow;
+    return { expired: false as const, approval: sqlite.prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow };
   });
-  return transaction();
+  const result = transaction();
+  if (result.expired) throw new Error("Approval has expired.");
+  return result.approval;
 }
 
 export function listTaskEvents(taskId: string, afterSequence = 0, limit = 100) {
