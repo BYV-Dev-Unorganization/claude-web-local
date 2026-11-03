@@ -28,11 +28,11 @@ This file tracks evidence for the implementation branch. Planning documents rema
 - [x] Durable task creation/list/detail APIs, validated state transitions, persisted ordered task events, pause/resume/cancel/retry records, and approvals bound to a SHA-256 digest of the exact stored action payload.
 - [x] Explicit task-to-workspace binding. Coding tasks without workspaceId are rejected; no workspace is selected implicitly.
 - [x] Structured planner persists ordered steps and checkpoints; provider tool calls are continued with actual tool results and tool errors.
-- [x] Supervised in-process worker pool starts after server startup when provider credentials and at least one model alias are configured. It uses atomic claims, hashed lease tokens, heartbeat, bounded concurrency, and graceful shutdown.
+- [x] Supervised worker pool supports embedded and separate OS-process modes. Workers register heartbeats, use atomic claims and hashed lease tokens, enforce bounded concurrency, and shut down gracefully; the API reports live worker heartbeat health.
 - [x] Checkpoints are persisted before/after model turns and tool results. Iteration, runtime, tool-call, output-token, and tool-result-size budgets are enforced.
 - [x] Exact-payload approval remains required for mutating tools; tool execution uses the selected workspace and isolated Docker worker.
 - [x] Lease recovery requeues safe work and pauses uncertain/in-flight side effects for operator review. Completed tool invocations after the last checkpoint are not replayed automatically; private checkpoint JSON is omitted from public task routes.
-- [ ] Separate OS worker deployment mode, multi-process stress/soak tests, live provider-contract checks against all configured model IDs, and process-kill crash-injection/E2E recovery tests.
+- [ ] Multi-process stress/soak tests, live provider-contract checks against all configured model IDs, and process-kill crash-injection/E2E recovery tests.
 - [~] Manual workspace explorer and file read/write API; confirmed commands and Git status/diff run through a Docker container with network disabled. Git branch/commit workflows, snapshots, rollback, and full security validation remain incomplete.
 - [ ] Playwright browser worker, hardened network egress, session lifecycle, and sensitive-action approvals.
 - [ ] MCP transports/discovery/lifecycle, connectors, plugin installation/runtime, and skill execution.

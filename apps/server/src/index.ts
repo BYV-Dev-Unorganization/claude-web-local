@@ -705,7 +705,19 @@ app.get("/api/v1/runtime/status", async () => ({
   app: "ready",
   database: sqlite.open ? "ready" : "unavailable",
   provider: isProviderConfigured() ? "configured" : "not_configured",
-  workers: { agent: isAgentProviderConfigured() ? "running" : "waiting_for_provider", concurrency: config.WORKER_CONCURRENCY, coding: "docker_sandbox", browser: "not_installed", research: "not_installed", scheduler: "not_installed" },
+  workers: {
+    agent: (() => {
+      if (config.AGENT_WORKER_MODE === "disabled") return "disabled";
+      if (!isAgentProviderConfigured()) return "waiting_for_provider";
+      const cutoff = new Date(Date.now() - 30000).toISOString();
+      const active = (sqlite.prepare("SELECT COUNT(*) AS count FROM worker_instances WHERE worker_type = 'agent' AND status = 'running' AND heartbeat_at >= ?").get(cutoff) as { count: number }).count;
+      return active > 0 ? "running" : "waiting_for_worker";
+    })(),
+    mode: config.AGENT_WORKER_MODE,
+    concurrency: config.WORKER_CONCURRENCY,
+    coding: "docker_sandbox",
+    browser: "not_installed", research: "not_installed", scheduler: "not_installed"
+  },
   security: { host: config.APP_HOST, remoteExposure: config.APP_HOST === "127.0.0.1" || config.APP_HOST === "::1" ? "loopback" : "requires_perimeter_authentication" }
 }));
 
@@ -724,7 +736,7 @@ process.once("SIGTERM", () => void shutdown().then(() => process.exit(0)));
 
 try {
   await app.listen({ host: config.APP_HOST, port: config.APP_PORT });
-  if (isAgentProviderConfigured()) {
+  if (config.AGENT_WORKER_MODE === "embedded" && isAgentProviderConfigured()) {
     startAgentWorkers((error) => app.log.error({ err: error }, "Agent worker error"));
   }
 } catch (error) {
