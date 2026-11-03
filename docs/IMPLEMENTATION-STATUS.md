@@ -22,7 +22,7 @@ This file tracks evidence for the implementation branch. Planning documents rema
 - [ ] Attachments/images in chat and Office/PDF/image document parsers.
 - [ ] Embedding provider, semantic retrieval, citations, and retrieval isolation tests.
 - [ ] Provider tool-call round trip, capability probing per model, structured output, and provider-specific thinking configuration.
-- [ ] Conversation edit/branch/regenerate/export and message-level search.
+- [~] Conversation rename and non-destructive branch/edit/regenerate flows. A branch copies the selected message prefix, rewires message ancestry, and records parent-conversation/branch-point lineage. Conversation export and dedicated message-level search are not implemented.
 - [ ] Research search/fetch workers, durable plans, source evaluation, and citation validation.
 - [~] Durable task creation/list/detail APIs, validated task state transitions, persisted ordered task events, pause/resume/cancel/retry records, and approval decisions bound to a SHA-256 digest of the exact stored action payload. Registered workspace tools now have a server-side execution gate: read-only calls require a running task; mutating calls require `approve-each`, an exact workspace/input approval, one-time approval consumption, and persisted invocation logs. The coding tool implementations use the isolated Docker workspace worker. Automated planning, worker leases/heartbeats, autonomous tool continuation, checkpoints, crash recovery, execution budgets, and durable worker recovery are still not implemented.
 - [~] Manual workspace explorer and file read/write API; confirmed commands and Git status/diff run through a Docker container with network disabled. Autonomous agent integration, Git branch/commit workflows, snapshots, rollback, and security validation remain incomplete.
@@ -31,7 +31,7 @@ This file tracks evidence for the implementation branch. Planning documents rema
 - [ ] Memory candidate extraction/approval/provenance workflow.
 - [ ] Cron scheduler and durable occurrence dispatch.
 - [ ] Multi-agent orchestration and voice adapters.
-- [ ] Full E2E, migration, provider-contract, container-boundary, recovery, load, and soak test coverage.
+- [~] Unit tests cover task lifecycle/approval integrity, workspace tool approval gates, and conversation branch lineage; CI exercises sandbox build/smoke, TypeScript checks, unit tests, and application builds. Full E2E, migration-upgrade matrix, provider-contract, browser/container-boundary, recovery, load, and soak coverage remain incomplete.
 - [ ] Production static serving, backup/restore automation, and hardened remote deployment.
 
 ## Verification policy
