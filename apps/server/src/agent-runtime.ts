@@ -64,11 +64,11 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value));
 }
 
-function approvalDigest(actionName: string, targetJson: string): string {
+export function approvalDigest(actionName: string, targetJson: string): string {
   return createHash("sha256").update(actionName).update("\0").update(targetJson).digest("hex");
 }
 
@@ -263,6 +263,10 @@ export function decideApproval(approvalId: string, approved: boolean, reason?: s
     const status = approved ? "approved" : "rejected";
     sqlite.prepare("UPDATE approvals SET status = ?, decided_at = ?, decision_reason = ? WHERE id = ?")
       .run(status, timestamp, reason?.slice(0, 1000) ?? null, approvalId);
+    if (approved) {
+      sqlite.prepare("UPDATE tool_invocations SET status = 'approved', completed_at = ? WHERE task_id = ? AND tool_name = ? AND input_json = ? AND status = 'waiting_approval'")
+        .run(timestamp, task.id, approval.action_name, approval.target_json);
+    }
     transitionWithinTransaction(task.id, approved ? "queued" : "paused",
       approved ? "Operator approved the exact pending action." : "Operator rejected the pending action.");
     recordTaskEvent(task.id, "approval." + status, { approvalId, reason: reason?.slice(0, 1000) ?? null });
