@@ -72,7 +72,7 @@ function approvalDigest(actionName: string, targetJson: string): string {
   return createHash("sha256").update(actionName).update("\0").update(targetJson).digest("hex");
 }
 
-function recordTaskEvent(taskId: string, eventType: string, payload: unknown): void {
+export function recordTaskEvent(taskId: string, eventType: string, payload: unknown): void {
   const row = sqlite.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM task_events WHERE task_id = ?")
     .get(taskId) as { sequence: number };
   sqlite.prepare("INSERT INTO task_events (id, task_id, sequence, event_type, payload_json, occurred_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -144,6 +144,14 @@ export function listTasks(limit = 50, status?: TaskStatus): TaskRow[] {
 export function transitionTask(taskId: string, nextStatus: TaskStatus, reason?: string): TaskRow {
   const run = sqlite.transaction(() => transitionWithinTransaction(taskId, nextStatus, reason));
   return run();
+}
+
+export function startTask(taskId: string): TaskRow {
+  const transaction = sqlite.transaction(() => {
+    transitionWithinTransaction(taskId, "planning", "Operator started task planning.");
+    return transitionWithinTransaction(taskId, "running", "Task entered the running state.");
+  });
+  return transaction();
 }
 
 export function pauseTask(taskId: string): TaskRow {
