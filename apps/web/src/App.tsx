@@ -11,6 +11,7 @@ type TaskRecord = { id: string; title: string; description: string; status: Task
 type ApprovalRecord = { id: string; task_id: string; action_name: string; target_json: string; status: string; requested_at: string; expires_at: string };
 type WorkspaceOption = { id: string; name: string; relative_path: string };
 type ToolOption = { name: string; description: string; permission: string; requiresApproval: boolean; timeoutMs: number };
+type TaskEvent = { id: string; sequence: number; event_type: string; payload_json: string; occurred_at: string };
 type Conversation = { id: string; title: string; model_alias: Alias; project_id?: string | null; updated_at: string };
 type Message = { id: string; role: "user" | "assistant"; content: string; status: string; created_at?: string };
 type Project = { id: string; name: string; description?: string; instructions?: string };
@@ -57,6 +58,7 @@ export default function App() {
   const [selectedToolName, setSelectedToolName] = useState("workspace.list");
   const [toolInputJson, setToolInputJson] = useState("{}");
   const [toolOutput, setToolOutput] = useState<string | null>(null);
+  const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<{ title: string; artifact_type: string; content: string; id: string } | null>(null);
   const [search, setSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
@@ -109,6 +111,10 @@ export default function App() {
     const result = await api<{ items: ApprovalRecord[] }>("/api/v1/approvals?status=pending");
     setApprovals(result.items);
   }, []);
+  const refreshTaskEvents = useCallback(async (taskId: string) => {
+    const result = await api<{ items: TaskEvent[] }>("/api/v1/tasks/" + taskId + "/events?limit=200");
+    setTaskEvents(result.items);
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -126,6 +132,13 @@ export default function App() {
       if (defaultModel) setModelAlias(defaultModel.alias);
     }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Failed to load application state."));
   }, [refreshConversations, refreshProjects, refreshArtifacts, refreshMemories, refreshTasks, refreshApprovals, refreshWorkspaces, refreshToolManifest]);
+
+  useEffect(() => {
+    if (selectedTaskId) void refreshTaskEvents(selectedTaskId).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : "Unable to load task events.");
+    });
+    else setTaskEvents([]);
+  }, [selectedTaskId, refreshTaskEvents]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -622,6 +635,12 @@ export default function App() {
               </form>
               {!workspaces.length && <p className="empty-copy">No workspace exists yet. Create one in Coding workspace before invoking tools.</p>}
               {toolOutput && <pre className="status-json">{toolOutput}</pre>}
+              <div className="panel-heading"><h3>Task event history</h3><button className="secondary-button" onClick={() => selectedTaskId && void refreshTaskEvents(selectedTaskId)}>Refresh events</button></div>
+              {!taskEvents.length ? <p className="empty-copy">No events for the selected task.</p> : <div className="project-list">
+                {taskEvents.map((event) => <article className="memory-card" key={event.id}>
+                  <div><span className="eyebrow">#{event.sequence} · {new Date(event.occurred_at).toLocaleString()}</span><p><strong>{event.event_type}</strong></p><pre className="status-json">{event.payload_json}</pre></div>
+                </article>)}
+              </div>}
             </div>
             <div className="panel">
               <div className="panel-heading"><div><h2>Pending approvals <span className="count">{approvals.length}</span></h2><p>Decisions are bound to the exact stored action payload and expire automatically.</p></div><button className="secondary-button" onClick={() => void refreshApprovals()}>Refresh</button></div>
