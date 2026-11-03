@@ -12,6 +12,7 @@ import { ProviderError, streamCompletion, testProvider } from "./provider.js";
 import { createWorkspace, listWorkspaces, getWorkspace, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, runWorkspaceCommand } from "./workspace.js";
 import { publicToolManifest } from "./tool-registry.js";
 import agentRoutes from "./agent-routes.js";
+import { createConversationBranch } from "./conversation-branches.js";
 
 const app = Fastify({
   logger: {
@@ -248,6 +249,22 @@ app.get("/api/v1/conversations/:id/messages", async (request, reply) => {
   if (!exists) return sendNotFound(reply, "Conversation");
   const rows = sqlite.prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC").all(conversationId);
   return { items: rows };
+});
+
+app.post("/api/v1/conversations/:id/branch", async (request, reply) => {
+  const conversationId = validId(getParam(request, "id"));
+  const body = z.object({ throughMessageId: z.string().uuid().nullable().default(null) }).parse(request.body ?? {});
+  try {
+    const branch = createConversationBranch(conversationId, body.throughMessageId);
+    reply.code(201);
+    return branch;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to branch conversation.";
+    const status = message.toLowerCase().includes("not found") ? 404 : 400;
+    return reply.code(status).send({
+      error: { code: status === 404 ? "not_found" : "validation_error", message }
+    });
+  }
 });
 
 app.post("/api/v1/conversations/:id/turns", async (request, reply) => {
