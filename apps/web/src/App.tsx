@@ -7,7 +7,8 @@ import CodingWorkspace from "./CodingWorkspace";
 type Alias = "fable" | "opus" | "sonnet" | "haiku";
 type Page = "chat" | "projects" | "artifacts" | "memory" | "tasks" | "coding" | "settings";
 type TaskStatus = "queued" | "planning" | "running" | "waiting_approval" | "waiting_input" | "paused" | "completed" | "failed" | "cancelled";
-type TaskRecord = { id: string; title: string; description: string; status: TaskStatus; task_type: string; model_alias: Alias; execution_mode: string; created_at: string; updated_at: string };
+type TaskRecord = { id: string; title: string; description: string; status: TaskStatus; task_type: string; model_alias: Alias; execution_mode: string; workspace_id?: string | null; created_at: string; updated_at: string };
+type ModelCapability = { alias: Alias; modelId: string; protocol: string; probedAt: string; chat: boolean; toolCalling: boolean; structuredOutput: boolean; thinking: boolean | null; thinkingConfigured: string; errors: string[] };
 type ApprovalRecord = { id: string; task_id: string; action_name: string; target_json: string; status: string; requested_at: string; expires_at: string };
 type WorkspaceOption = { id: string; name: string; relative_path: string };
 type ToolOption = { name: string; description: string; permission: string; requiresApproval: boolean; timeoutMs: number };
@@ -47,6 +48,7 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [modelAlias, setModelAlias] = useState<Alias>("sonnet");
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelCapabilities, setModelCapabilities] = useState<ModelCapability[]>([]);
   const [provider, setProvider] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
@@ -79,7 +81,7 @@ export default function App() {
   const [editingProject, setEditingProject] = useState({ name: "", description: "", instructions: "" });
   const [newArtifact, setNewArtifact] = useState({ title: "", artifactType: "html", content: "" });
   const [newMemory, setNewMemory] = useState({ content: "", scope: "global", projectId: "" });
-  const [newTask, setNewTask] = useState({ title: "", description: "", taskType: "general", modelAlias: "sonnet" as Alias, executionMode: "approve-each" });
+  const [newTask, setNewTask] = useState({ title: "", description: "", taskType: "general", modelAlias: "sonnet" as Alias, executionMode: "approve-each", workspaceId: "" });
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -139,11 +141,13 @@ export default function App() {
     Promise.all([
       refreshConversations(), refreshProjects(), refreshArtifacts(), refreshMemories(),
       api<{ provider: string | null; models: ModelInfo[] }>("/api/v1/models"),
+      api<{ items: ModelCapability[] }>("/api/v1/models/capabilities"),
       api<Record<string, { available: boolean; reason?: string }>>("/api/v1/capabilities"),
       api<Record<string, unknown>>("/api/v1/runtime/status"),
       refreshTasks(), refreshApprovals(), refreshWorkspaces(), refreshToolManifest()
-    ]).then(([, , , , modelData, caps, status]) => {
+    ]).then(([, , , , modelData, modelCapabilityData, caps, status]) => {
       setModels(modelData.models);
+      setModelCapabilities(modelCapabilityData.items);
       setProvider(modelData.provider);
       setCapabilities(caps);
       setRuntime(status);
@@ -167,6 +171,7 @@ export default function App() {
     () => conversations.find((conversation) => conversation.id === activeConversation) ?? null,
     [conversations, activeConversation]
   );
+  const agentWorkerStatus = (runtime?.workers as { agent?: string } | undefined)?.agent ?? "unknown";
 
   const openConversation = async (conversationId: string) => {
     setError(null);
@@ -498,20 +503,36 @@ export default function App() {
 
   const createAgentTask = async (event: FormEvent) => {
     event.preventDefault();
+    if (newTask.taskType === "coding" && !newTask.workspaceId) {
+      setError("Select a workspace before creating a coding task.");
+      return;
+    }
     try {
       const result = await api<TaskRecord>("/api/v1/tasks", {
         method: "POST",
         body: JSON.stringify({
           title: newTask.title, description: newTask.description, taskType: newTask.taskType,
           modelAlias: newTask.modelAlias, executionMode: newTask.executionMode,
+          ...(newTask.workspaceId ? { workspaceId: newTask.workspaceId } : {}),
           ...(selectedProject ? { projectId: selectedProject } : {})
         })
       });
-      setNewTask({ title: "", description: "", taskType: "general", modelAlias, executionMode: "approve-each" });
+      setNewTask({ title: "", description: "", taskType: "general", modelAlias, executionMode: "approve-each", workspaceId: "" });
       await refreshTasks();
-      setNotice("Task saved in the durable queue. It will not execute until an agent worker is installed.");
+      setNotice("Task enqueued. A healthy agent worker will pick it up automatically.");
       setPage("tasks");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Task creation failed."); }
+  };
+
+  const probeModel = async (alias: Alias) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api<ModelCapability>("/api/v1/models/" + alias + "/probe", { method: "POST", body: JSON.stringify({}) });
+      setModelCapabilities((current) => [...current.filter((item) => item.alias !== alias), result].sort((a, b) => a.alias.localeCompare(b.alias)));
+      setNotice("Capability probe completed for " + alias + ".");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Model capability probe failed."); }
+    finally { setBusy(false); }
   };
 
   const operateTask = async (taskId: string, action: "pause" | "resume" | "cancel" | "retry") => {
@@ -786,17 +807,22 @@ export default function App() {
         {page === "tasks" && (
           <section className="content-page">
             <div className="page-heading"><div><p className="eyebrow">DURABLE EXECUTION HISTORY</p><h1>Tasks</h1><p>Create and manage persisted agent task records and sensitive-action approvals.</p></div></div>
-            <div className="toast" role="status"><span>Agent execution is not enabled yet. Tasks are stored and state transitions are available, but no planner/worker is installed to execute queued tasks automatically.</span></div>
+            <div className="toast" role="status"><span>Agent worker: {agentWorkerStatus}. Queued tasks are processed automatically when a worker is healthy. Workspace tools require an explicitly selected workspace; mutating operations wait for exact approval.</span></div>
             <div className="two-column">
               <div className="panel">
                 <h2>Create task</h2>
                 <form className="stack-form" onSubmit={(event) => void createAgentTask(event)}>
                   <label>Task title<input required maxLength={160} value={newTask.title} onChange={(event) => setNewTask({ ...newTask, title: event.target.value })} placeholder="e.g. Review the API security model" /></label>
                   <label>Goal and acceptance notes<textarea required rows={5} maxLength={20000} value={newTask.description} onChange={(event) => setNewTask({ ...newTask, description: event.target.value })} placeholder="Describe the outcome and what counts as complete..." /></label>
-                  <label>Task type<select value={newTask.taskType} onChange={(event) => setNewTask({ ...newTask, taskType: event.target.value })}>{["general", "research", "coding", "browser", "scheduled"].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                  <label>Task type<select value={newTask.taskType} onChange={(event) => setNewTask({ ...newTask, taskType: event.target.value })}>{["general", "coding"].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                  <label>Workspace (optional for general tasks; required for coding)
+                    <select required={newTask.taskType === "coding"} value={newTask.workspaceId} onChange={(event) => setNewTask({ ...newTask, workspaceId: event.target.value })}>
+                      <option value="">No workspace</option>{workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+                    </select>
+                  </label>
                   <label>Model alias<select value={newTask.modelAlias} onChange={(event) => setNewTask({ ...newTask, modelAlias: event.target.value as Alias })}>{models.map((model) => <option key={model.alias} value={model.alias} disabled={!model.configured}>{model.alias}{!model.configured ? " · not configured" : ""}</option>)}</select></label>
                   <label>Execution policy<select value={newTask.executionMode} onChange={(event) => setNewTask({ ...newTask, executionMode: event.target.value })}><option value="approve-each">Approve sensitive actions</option><option value="plan">Plan only</option><option value="restricted">Restricted tools</option><option value="auto">Configured allow policy</option></select></label>
-                  <button className="primary-button" type="submit" disabled={!models.some((model) => model.alias === newTask.modelAlias && model.configured)}>Save task to queue</button>
+                  <button className="primary-button" type="submit" disabled={!models.some((model) => model.alias === newTask.modelAlias && model.configured) || (newTask.taskType === "coding" && !newTask.workspaceId)}>Queue agent task</button>
                 </form>
               </div>
               <div className="panel">
@@ -862,6 +888,16 @@ export default function App() {
               <h2>Model aliases</h2>
               <p className="muted">Provider: {provider ?? "Not configured"} · Protocol is environment-controlled.</p>
               <div className="model-status-list">{models.map((model) => <div key={model.alias}><strong>{model.alias}</strong><span>{model.isDefault ? "Default" : ""}</span><span className={model.configured ? "status-good" : "status-muted"}>{model.configured ? "Configured" : "Missing environment variable"}</span></div>)}</div>
+            </div>
+            <div className="panel settings-panel">
+              <div className="panel-heading"><div><h2>Model capabilities</h2><p className="muted">Probe the configured endpoint for each alias. Probes make real provider API requests and may incur usage.</p></div></div>
+              <div className="project-list">{modelCapabilities.map((item) => <article className="memory-card" key={item.alias}>
+                <div><span className="eyebrow">{item.alias} · {item.protocol}</span><p><strong>{item.modelId || "Not configured"}</strong></p>
+                  <div className="capability-list"><div><span>Chat</span><span>{item.chat ? "Supported" : "Not verified"}</span></div><div><span>Tool calling</span><span>{item.toolCalling ? "Supported" : "Not verified"}</span></div><div><span>Structured output</span><span>{item.structuredOutput ? "Supported" : "Not verified"}</span></div><div><span>Thinking</span><span>{item.thinking === null ? "Not probed" : item.thinking ? "Accepted" : "Rejected"} · {item.thinkingConfigured}</span></div></div>
+                  {item.errors.length > 0 && <pre className="status-json">{item.errors.join("\n")}</pre>}
+                  {item.probedAt && <small>Last probe: {new Date(item.probedAt).toLocaleString()}</small>}
+                </div><button className="secondary-button" disabled={busy || !models.some((model) => model.alias === item.alias && model.configured)} onClick={() => void probeModel(item.alias)}>Probe model</button>
+              </article>)}</div>
             </div>
             <div className="panel settings-panel">
               <h2>Runtime status</h2>
