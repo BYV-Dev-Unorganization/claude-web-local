@@ -76,7 +76,7 @@ const agentRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  const taskAction = (action: (taskId: string) => unknown) => async (request: FastifyRequest, reply: FastifyReply) => {
+  const taskAction = (action: (taskId: string) => object) => async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const taskId = idSchema.parse((request.params as { id: string }).id);
       return action(taskId);
