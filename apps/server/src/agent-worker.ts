@@ -108,6 +108,13 @@ function saveCheckpoint(taskId: string, checkpoint: Checkpoint): void {
     .run(JSON.stringify(checkpoint), checkpoint.savedAt, taskId);
 }
 
+function remainingTokens(task: WorkerTask, checkpoint: Checkpoint): number {
+  const used = checkpoint.inputTokens + checkpoint.outputTokens;
+  if (task.token_budget !== null) return Math.max(0, task.token_budget - used);
+  const thinking = config.modelThinking[task.model_alias];
+  return Math.max(config.AI_MAX_OUTPUT_TOKENS, thinking.mode === "enabled" ? thinking.budgetTokens + 1024 : 1);
+}
+
 function remainingSeconds(task: WorkerTask, checkpoint: Checkpoint): number {
   const limit = task.time_limit_seconds ?? config.TASK_MAX_RUNTIME_SECONDS;
   return Math.floor(limit - activeElapsed(checkpoint) / 1000);
@@ -236,9 +243,11 @@ export async function runClaimedTask(
     ];
     const budget = remainingSeconds(task, checkpoint);
     if (budget <= 0) throw new Error("Task time budget was exhausted during planning.");
+    const tokens = remainingTokens(task, checkpoint);
+    if (tokens <= 0) throw new Error("Task token budget was exhausted during planning.");
     const planned = await complete(
       task.model_alias, plannerMessages, boundedSignal(signal, budget),
-      { outputSchema: planJsonSchema }
+      { outputSchema: planJsonSchema, maxOutputTokens: tokens }
     );
     checkpoint.iterations += 1;
     checkpoint.inputTokens += planned.inputTokens;
@@ -317,9 +326,11 @@ export async function runClaimedTask(
       continue;
     }
 
+    const tokens = remainingTokens(task, checkpoint);
+    if (tokens <= 0) throw new Error("Task token budget was exhausted.");
     const turn = await complete(
       task.model_alias, checkpoint.messages, boundedSignal(signal, remaining),
-      { tools: availableTools }
+      { tools: availableTools, maxOutputTokens: tokens }
     );
     checkpoint.iterations += 1;
     checkpoint.inputTokens += turn.inputTokens;
