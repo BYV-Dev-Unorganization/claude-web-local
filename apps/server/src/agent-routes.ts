@@ -2,8 +2,9 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   cancelTask, createTask, decideApproval, getTask, listApprovals, listTaskEvents,
-  listTaskSteps, listTasks, pauseTask, resumeTask, retryTask, taskStatuses
+  listTaskSteps, listTasks, pauseTask, resumeTask, retryTask, startTask, taskStatuses
 } from "./agent-runtime.js";
+import { executeTaskTool } from "./agent-executor.js";
 
 function reportError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : "Task operation failed.";
@@ -84,10 +85,24 @@ const agentRoutes: FastifyPluginAsync = async (app) => {
       return reportError(reply, error);
     }
   };
+  app.post("/api/v1/tasks/:id/start", taskAction(startTask));
   app.post("/api/v1/tasks/:id/pause", taskAction(pauseTask));
   app.post("/api/v1/tasks/:id/resume", taskAction(resumeTask));
   app.post("/api/v1/tasks/:id/cancel", taskAction(cancelTask));
   app.post("/api/v1/tasks/:id/retry", taskAction(retryTask));
+
+  app.post("/api/v1/tasks/:id/workspaces/:workspaceId/tools/:toolName", async (request, reply) => {
+    try {
+      const params = request.params as { id: string; workspaceId: string; toolName: string };
+      const taskId = idSchema.parse(params.id);
+      const workspaceId = idSchema.parse(params.workspaceId);
+      const toolName = z.string().min(1).max(160).parse(params.toolName);
+      const body = z.object({ input: z.unknown() }).parse(request.body ?? {});
+      return await executeTaskTool(taskId, workspaceId, toolName, body.input);
+    } catch (error) {
+      return reportError(reply, error);
+    }
+  });
 
   app.get("/api/v1/approvals", async (request, reply) => {
     try {
