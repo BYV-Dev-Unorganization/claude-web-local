@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   task_type TEXT NOT NULL, model_alias TEXT NOT NULL, execution_mode TEXT NOT NULL,
   iteration_limit INTEGER NOT NULL, token_budget INTEGER, time_limit_seconds INTEGER,
   checkpoint_json TEXT, created_at TEXT NOT NULL, started_at TEXT, completed_at TEXT,
-  updated_at TEXT NOT NULL, worker_lease_until TEXT
+  updated_at TEXT NOT NULL, worker_lease_until TEXT, worker_id TEXT,
+  worker_lease_token_hash TEXT, worker_attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON tasks(status, updated_at);
 CREATE TABLE IF NOT EXISTS task_steps (
@@ -170,6 +171,13 @@ if (!hasColumn("branch_message_id")) {
   sqlite.exec("ALTER TABLE conversations ADD COLUMN branch_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL");
 }
 sqlite.exec("CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id)");
+const taskColumns = sqlite.pragma("table_info(tasks)") as Array<{ name: string }>;
+const hasTaskColumn = (name: string) => taskColumns.some((column) => column.name === name);
+if (!hasTaskColumn("worker_id")) sqlite.exec("ALTER TABLE tasks ADD COLUMN worker_id TEXT");
+if (!hasTaskColumn("worker_lease_token_hash")) sqlite.exec("ALTER TABLE tasks ADD COLUMN worker_lease_token_hash TEXT");
+if (!hasTaskColumn("worker_attempts")) sqlite.exec("ALTER TABLE tasks ADD COLUMN worker_attempts INTEGER NOT NULL DEFAULT 0");
+sqlite.exec("CREATE INDEX IF NOT EXISTS idx_tasks_worker_claim ON tasks(status, worker_lease_until, created_at)");
+
 const recordSchemaVersion = sqlite.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)");
 const migrationTime = new Date().toISOString();
 recordSchemaVersion.run(1, migrationTime);
