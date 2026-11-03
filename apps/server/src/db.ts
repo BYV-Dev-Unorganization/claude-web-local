@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+  branch_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
   title TEXT NOT NULL, model_alias TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
 );
@@ -158,6 +160,20 @@ CREATE TABLE IF NOT EXISTS model_usage (
 CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(message_id UNINDEXED, conversation_id UNINDEXED, content);
 CREATE VIRTUAL TABLE IF NOT EXISTS file_search USING fts5(file_id UNINDEXED, project_id UNINDEXED, content);
 `);
+
+const conversationColumns = sqlite.pragma("table_info(conversations)") as Array<{ name: string }>;
+const hasColumn = (name: string) => conversationColumns.some((column) => column.name === name);
+if (!hasColumn("parent_conversation_id")) {
+  sqlite.exec("ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL");
+}
+if (!hasColumn("branch_message_id")) {
+  sqlite.exec("ALTER TABLE conversations ADD COLUMN branch_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL");
+}
+sqlite.exec("CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id)");
+const recordSchemaVersion = sqlite.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)");
+const migrationTime = new Date().toISOString();
+recordSchemaVersion.run(1, migrationTime);
+recordSchemaVersion.run(2, migrationTime);
 
 export const db = drizzle(sqlite);
 
