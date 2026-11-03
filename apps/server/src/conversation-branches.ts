@@ -18,8 +18,10 @@ export function createConversationBranch(conversationId: string, throughMessageI
   const sourceMessages = sqlite.prepare(
     "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC"
   ).all(conversationId) as MessageRow[];
-  let messagesToCopy = sourceMessages;
-  if (throughMessageId) {
+  let messagesToCopy: MessageRow[];
+  if (throughMessageId === null) {
+    messagesToCopy = [];
+  } else {
     const targetIndex = sourceMessages.findIndex((message) => message.id === throughMessageId);
     if (targetIndex < 0) throw new Error("Branch point message does not belong to the conversation.");
     messagesToCopy = sourceMessages.slice(0, targetIndex + 1);
