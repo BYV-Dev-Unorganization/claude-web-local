@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import Fastify from "fastify";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sqlite, nowIso } from "./db.js";
 import { config } from "./config.js";
 import { createWorkspace, type WorkspaceRecord } from "./workspace.js";
@@ -26,6 +26,7 @@ function insertTask(iterationLimit = 8, workspaceId?: string): string {
 
 let temporaryWorkspace: WorkspaceRecord | null = null;
 describe("durable autonomous agent worker", () => {
+  beforeEach(() => { sqlite.prepare("DELETE FROM tasks").run(); });
   afterEach(async () => {
     sqlite.prepare("DELETE FROM tasks").run();
     if (temporaryWorkspace) {
