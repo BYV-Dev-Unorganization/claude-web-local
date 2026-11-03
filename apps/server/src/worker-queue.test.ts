@@ -65,6 +65,29 @@ describe("durable worker queue leases", () => {
     expect(claimed.leaseToken).toBeTruthy();
   });
 
+
+  it("pauses instead of replaying a tool that completed after the last durable checkpoint", () => {
+    const claimed = claimNextTask("worker-a", 30)!;
+    const checkpointAt = new Date(Date.now() - 2000).toISOString();
+    sqlite.prepare("UPDATE tasks SET checkpoint_json = ? WHERE id = ?")
+      .run(JSON.stringify({
+        version: 1,
+        savedAt: checkpointAt,
+        pendingToolCalls: [{ id: "call-1", name: "workspace.write_file" }]
+      }), taskId);
+    const completedAt = nowIso();
+    sqlite.prepare(`
+      INSERT INTO tool_invocations (id, task_id, tool_name, input_json, output_json, status, started_at, completed_at)
+      VALUES (?, ?, 'workspace.write_file', '{}', '{"written":true}', 'completed', ?, ?)
+    `).run(randomUUID(), taskId, checkpointAt, completedAt);
+    const expiredAt = new Date(Date.now() + 60_000).toISOString();
+    expect(recoverExpiredTaskLeases(expiredAt)).toEqual({ requeued: 0, paused: 1 });
+    expect(sqlite.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId))
+      .toEqual({ status: "paused" });
+    expect(claimNextTask("worker-b", 30)).toBeNull();
+    expect(claimed.leaseToken).toBeTruthy();
+  });
+
   it("does not claim paused or waiting-approval tasks", () => {
     sqlite.prepare("UPDATE tasks SET status = 'paused' WHERE id = ?").run(taskId);
     expect(claimNextTask("worker-a", 30)).toBeNull();

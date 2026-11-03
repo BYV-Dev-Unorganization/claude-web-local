@@ -245,7 +245,7 @@ export async function completeAgentTurn(
     headers.authorization = "Bearer " + config.AI_API_KEY;
     const openAiTools = options.tools?.map((tool) => ({
       type: "function",
-      function: { name: tool.name, description: tool.description, parameters: tool.inputSchema, strict: true }
+      function: { name: tool.name, description: tool.description, parameters: tool.inputSchema }
     }));
     body = {
       model,
