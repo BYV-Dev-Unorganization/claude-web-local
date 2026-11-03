@@ -24,7 +24,7 @@ This file tracks evidence for the implementation branch. Planning documents rema
 - [ ] Provider tool-call round trip, capability probing per model, structured output, and provider-specific thinking configuration.
 - [ ] Conversation edit/branch/regenerate/export and message-level search.
 - [ ] Research search/fetch workers, durable plans, source evaluation, and citation validation.
-- [ ] Agent planner/orchestrator, durable queue leases, checkpoints, approvals, pause/resume/retry, and worker recovery.
+- [~] Durable task creation/list/detail APIs, validated task state transitions, persisted ordered task events, pause/resume/cancel/retry records, and approval decisions bound to a SHA-256 digest of the exact stored action payload. Automated planning, worker leases/heartbeats, tool execution continuation, checkpoints, crash recovery, execution budgets, and worker isolation are still not implemented.
 - [~] Manual workspace explorer and file read/write API; confirmed commands and Git status/diff run through a Docker container with network disabled. Autonomous agent integration, Git branch/commit workflows, snapshots, rollback, and security validation remain incomplete.
 - [ ] Playwright browser worker, hardened network egress, session lifecycle, and sensitive-action approvals.
 - [ ] MCP transports/discovery/lifecycle, connectors, plugin installation/runtime, and skill execution.
