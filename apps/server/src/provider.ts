@@ -388,7 +388,7 @@ export async function probeModelCapabilities(alias: ModelAlias): Promise<ModelCa
     const schema = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false };
     const turn = await completeAgentTurn(alias, [
       { role: "system", content: "Return JSON matching the required schema. Output JSON only." },
-      { role: "user", content: "Return {\\"ok\\":true}." }
+      { role: "user", content: "Return {\"ok\":true}." }
     ], controller.signal, { outputSchema: schema });
     base.structuredOutput = JSON.parse(turn.text).ok === true;
     if (!base.structuredOutput) errors.push("structured output: response did not match the probe schema");
