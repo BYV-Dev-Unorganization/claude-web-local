@@ -182,6 +182,7 @@ const recordSchemaVersion = sqlite.prepare("INSERT OR IGNORE INTO schema_migrati
 const migrationTime = new Date().toISOString();
 recordSchemaVersion.run(1, migrationTime);
 recordSchemaVersion.run(2, migrationTime);
+recordSchemaVersion.run(3, migrationTime);
 
 export const db = drizzle(sqlite);
 
