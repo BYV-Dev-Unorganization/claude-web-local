@@ -366,7 +366,7 @@ export async function runClaimedTask(
 }
 
 const activeControllers = new Set<AbortController>();
-const workerInstanceId = randomUUID();
+let workerInstanceId = "";
 let instanceHeartbeat: NodeJS.Timeout | null = null;
 let workerLoops: Promise<void>[] = [];
 let stopping = false;
@@ -405,6 +405,7 @@ export function startAgentWorkers(onError: (error: unknown) => void = () => unde
   if (started) return;
   started = true;
   stopping = false;
+  workerInstanceId = randomUUID();
   const timestamp = nowIso();
   sqlite.prepare("INSERT INTO worker_instances (id, worker_type, process_id, status, started_at, heartbeat_at) VALUES (?, 'agent', ?, 'running', ?, ?)")
     .run(workerInstanceId, process.pid, timestamp, timestamp);

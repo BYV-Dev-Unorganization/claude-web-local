@@ -96,7 +96,7 @@ describe("provider agent contract", () => {
     ];
     await completeAgentTurn("sonnet", messages, new AbortController().signal);
     const bodyMessages = requestBody.messages as Array<Record<string, unknown>>;
-    expect(bodyMessages[1].role).toBe("assistant");
+    expect(bodyMessages[1]!.role).toBe("assistant");
     expect(bodyMessages[2]).toEqual({
       role: "user",
       content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "{\"files\":[]}" }]
