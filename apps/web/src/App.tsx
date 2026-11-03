@@ -5,7 +5,10 @@ import rehypeHighlight from "rehype-highlight";
 import CodingWorkspace from "./CodingWorkspace";
 
 type Alias = "fable" | "opus" | "sonnet" | "haiku";
-type Page = "chat" | "projects" | "artifacts" | "memory" | "coding" | "settings";
+type Page = "chat" | "projects" | "artifacts" | "memory" | "tasks" | "coding" | "settings";
+type TaskStatus = "queued" | "planning" | "running" | "waiting_approval" | "waiting_input" | "paused" | "completed" | "failed" | "cancelled";
+type TaskRecord = { id: string; title: string; description: string; status: TaskStatus; task_type: string; model_alias: Alias; execution_mode: string; created_at: string; updated_at: string };
+type ApprovalRecord = { id: string; task_id: string; action_name: string; target_json: string; status: string; requested_at: string; expires_at: string };
 type Conversation = { id: string; title: string; model_alias: Alias; project_id?: string | null; updated_at: string };
 type Message = { id: string; role: "user" | "assistant"; content: string; status: string; created_at?: string };
 type Project = { id: string; name: string; description?: string; instructions?: string };
@@ -43,6 +46,8 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState<string>("");
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<{ title: string; artifact_type: string; content: string; id: string } | null>(null);
   const [search, setSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
@@ -55,6 +60,7 @@ export default function App() {
   const [newProject, setNewProject] = useState({ name: "", description: "", instructions: "" });
   const [newArtifact, setNewArtifact] = useState({ title: "", artifactType: "html", content: "" });
   const [newMemory, setNewMemory] = useState({ content: "", scope: "global", projectId: "" });
+  const [newTask, setNewTask] = useState({ title: "", description: "", taskType: "general", modelAlias: "sonnet" as Alias, executionMode: "approve-each" });
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -75,13 +81,22 @@ export default function App() {
     const result = await api<{ items: Memory[] }>("/api/v1/memories");
     setMemories(result.items);
   }, []);
+  const refreshTasks = useCallback(async () => {
+    const result = await api<{ items: TaskRecord[] }>("/api/v1/tasks?limit=50");
+    setTasks(result.items);
+  }, []);
+  const refreshApprovals = useCallback(async () => {
+    const result = await api<{ items: ApprovalRecord[] }>("/api/v1/approvals?status=pending");
+    setApprovals(result.items);
+  }, []);
 
   useEffect(() => {
     Promise.all([
       refreshConversations(), refreshProjects(), refreshArtifacts(), refreshMemories(),
       api<{ provider: string | null; models: ModelInfo[] }>("/api/v1/models"),
       api<Record<string, { available: boolean; reason?: string }>>("/api/v1/capabilities"),
-      api<Record<string, unknown>>("/api/v1/runtime/status")
+      api<Record<string, unknown>>("/api/v1/runtime/status"),
+      refreshTasks(), refreshApprovals()
     ]).then(([, , , , modelData, caps, status]) => {
       setModels(modelData.models);
       setProvider(modelData.provider);
@@ -90,7 +105,7 @@ export default function App() {
       const defaultModel = modelData.models.find((item) => item.isDefault && item.configured);
       if (defaultModel) setModelAlias(defaultModel.alias);
     }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Failed to load application state."));
-  }, [refreshConversations, refreshProjects, refreshArtifacts, refreshMemories]);
+  }, [refreshConversations, refreshProjects, refreshArtifacts, refreshMemories, refreshTasks, refreshApprovals]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -273,6 +288,40 @@ export default function App() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to open artifact."); }
   };
 
+  const createAgentTask = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      const result = await api<TaskRecord>("/api/v1/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          title: newTask.title, description: newTask.description, taskType: newTask.taskType,
+          modelAlias: newTask.modelAlias, executionMode: newTask.executionMode,
+          ...(selectedProject ? { projectId: selectedProject } : {})
+        })
+      });
+      setNewTask({ title: "", description: "", taskType: "general", modelAlias, executionMode: "approve-each" });
+      await refreshTasks();
+      setNotice("Task saved in the durable queue. It will not execute until an agent worker is installed.");
+      setPage("tasks");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Task creation failed."); }
+  };
+
+  const operateTask = async (taskId: string, action: "pause" | "resume" | "cancel" | "retry") => {
+    try {
+      await api("/api/v1/tasks/" + taskId + "/" + action, { method: "POST", body: JSON.stringify({}) });
+      await refreshTasks();
+      setNotice("Task " + action + " request saved.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Task operation failed."); }
+  };
+
+  const decideTaskApproval = async (approvalId: string, decision: "approve" | "reject") => {
+    try {
+      await api("/api/v1/approvals/" + approvalId + "/" + decision, { method: "POST", body: JSON.stringify({}) });
+      await Promise.all([refreshTasks(), refreshApprovals()]);
+      setNotice("Approval " + decision + "d.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Approval decision failed."); }
+  };
+
   const saveMemory = async (event: FormEvent) => {
     event.preventDefault();
     try {
@@ -295,7 +344,7 @@ export default function App() {
   };
 
   const filteredConversations = conversations.filter((conversation) => conversation.title.toLowerCase().includes(search.toLowerCase()));
-  const currentPageTitle = { chat: "Chat", projects: "Projects", artifacts: "Artifacts", memory: "Memory", coding: "Coding workspace", settings: "Settings" }[page];
+  const currentPageTitle = { chat: "Chat", projects: "Projects", artifacts: "Artifacts", memory: "Memory", tasks: "Tasks", coding: "Coding workspace", settings: "Settings" }[page];
 
   return (
     <div className="app-shell">
@@ -303,10 +352,10 @@ export default function App() {
         <div className="brand"><span className="brand-mark">✳</span><div><strong>Claude Web Local</strong><small>Private AI workspace</small></div></div>
         <button className="new-chat" onClick={() => void createConversation()}><span>＋</span> New chat</button>
         <nav className="primary-nav" aria-label="Main navigation">
-          {(["chat", "projects", "artifacts", "memory", "coding", "settings"] as Page[]).map((item) => (
+          {(["chat", "projects", "artifacts", "memory", "tasks", "coding", "settings"] as Page[]).map((item) => (
             <button key={item} className={page === item ? "nav-item active" : "nav-item"} onClick={() => setPage(item)}>
-              <span className="nav-icon">{({ chat: "◫", projects: "▤", artifacts: "◇", memory: "⌁", coding: "⌘", settings: "⚙" } as Record<Page, string>)[item]}</span>
-              {({ chat: "Chats", projects: "Projects", artifacts: "Artifacts", memory: "Memory", coding: "Coding", settings: "Settings" } as Record<Page, string>)[item]}
+              <span className="nav-icon">{({ chat: "◫", projects: "▤", artifacts: "◇", memory: "⌁", tasks: "⇢", coding: "⌘", settings: "⚙" } as Record<Page, string>)[item]}</span>
+              {({ chat: "Chats", projects: "Projects", artifacts: "Artifacts", memory: "Memory", tasks: "Tasks", coding: "Coding", settings: "Settings" } as Record<Page, string>)[item]}
             </button>
           ))}
         </nav>
@@ -478,6 +527,50 @@ export default function App() {
           </section>
         )}
 
+        {page === "tasks" && (
+          <section className="content-page">
+            <div className="page-heading"><div><p className="eyebrow">DURABLE EXECUTION HISTORY</p><h1>Tasks</h1><p>Create and manage persisted agent task records and sensitive-action approvals.</p></div></div>
+            <div className="toast" role="status"><span>Agent execution is not enabled yet. Tasks are stored and state transitions are available, but no planner/worker is installed to execute queued tasks automatically.</span></div>
+            <div className="two-column">
+              <div className="panel">
+                <h2>Create task</h2>
+                <form className="stack-form" onSubmit={(event) => void createAgentTask(event)}>
+                  <label>Task title<input required maxLength={160} value={newTask.title} onChange={(event) => setNewTask({ ...newTask, title: event.target.value })} placeholder="e.g. Review the API security model" /></label>
+                  <label>Goal and acceptance notes<textarea required rows={5} maxLength={20000} value={newTask.description} onChange={(event) => setNewTask({ ...newTask, description: event.target.value })} placeholder="Describe the outcome and what counts as complete..." /></label>
+                  <label>Task type<select value={newTask.taskType} onChange={(event) => setNewTask({ ...newTask, taskType: event.target.value })}>{["general", "research", "coding", "browser", "scheduled"].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                  <label>Model alias<select value={newTask.modelAlias} onChange={(event) => setNewTask({ ...newTask, modelAlias: event.target.value as Alias })}>{models.map((model) => <option key={model.alias} value={model.alias} disabled={!model.configured}>{model.alias}{!model.configured ? " · not configured" : ""}</option>)}</select></label>
+                  <label>Execution policy<select value={newTask.executionMode} onChange={(event) => setNewTask({ ...newTask, executionMode: event.target.value })}><option value="approve-each">Approve sensitive actions</option><option value="plan">Plan only</option><option value="restricted">Restricted tools</option><option value="auto">Configured allow policy</option></select></label>
+                  <button className="primary-button" type="submit" disabled={!models.some((model) => model.alias === newTask.modelAlias && model.configured)}>Save task to queue</button>
+                </form>
+              </div>
+              <div className="panel">
+                <div className="panel-heading"><h2>Task history <span className="count">{tasks.length}</span></h2><button className="secondary-button" onClick={() => void refreshTasks()}>Refresh</button></div>
+                {tasks.length === 0 ? <p className="empty-copy">No tasks have been created.</p> : <div className="project-list">
+                  {tasks.map((task) => <article className="memory-card" key={task.id}>
+                    <div><span className="eyebrow">{task.task_type} · {task.model_alias} · {task.execution_mode}</span><p><strong>{task.title}</strong></p><small>{task.status.replace("_", " ")} · {new Date(task.created_at).toLocaleString()}</small><p className="muted small-pad">{task.description}</p>
+                      <div className="workspace-actions">
+                        {["queued", "planning", "running", "waiting_approval", "waiting_input"].includes(task.status) && <button className="secondary-button" onClick={() => void operateTask(task.id, "pause")}>Pause</button>}
+                        {task.status === "paused" && <button className="secondary-button" onClick={() => void operateTask(task.id, "resume")}>Resume</button>}
+                        {!["completed", "failed", "cancelled"].includes(task.status) && <button className="secondary-button" onClick={() => void operateTask(task.id, "cancel")}>Cancel</button>}
+                        {["failed", "cancelled"].includes(task.status) && <button className="secondary-button" onClick={() => void operateTask(task.id, "retry")}>Retry</button>}
+                      </div>
+                    </div>
+                  </article>)}
+                </div>}
+              </div>
+            </div>
+            <div className="panel">
+              <div className="panel-heading"><div><h2>Pending approvals <span className="count">{approvals.length}</span></h2><p>Decisions are bound to the exact stored action payload and expire automatically.</p></div><button className="secondary-button" onClick={() => void refreshApprovals()}>Refresh</button></div>
+              {approvals.length === 0 ? <p className="empty-copy">No pending approvals.</p> : <div className="project-list">
+                {approvals.map((approval) => <article className="memory-card" key={approval.id}>
+                  <div><span className="eyebrow">Task {approval.task_id.slice(0, 8)} · expires {new Date(approval.expires_at).toLocaleString()}</span><p><strong>{approval.action_name}</strong></p><pre className="status-json">{approval.target_json}</pre>
+                    <div className="workspace-actions"><button className="primary-button" onClick={() => void decideTaskApproval(approval.id, "approve")}>Approve exact action</button><button className="secondary-button" onClick={() => void decideTaskApproval(approval.id, "reject")}>Reject</button></div>
+                  </div>
+                </article>)}
+              </div>}
+            </div>
+          </section>
+        )}
         {page === "coding" && <CodingWorkspace />}
 
         {page === "settings" && (
