@@ -218,13 +218,15 @@ app.patch("/api/v1/conversations/:id", async (request, reply) => {
     modelAlias: aliasSchema.optional(),
     archived: z.boolean().optional()
   }).refine((value) => Object.keys(value).length > 0).parse(request.body);
-  const current = sqlite.prepare("SELECT * FROM conversations WHERE id = ?").get(conversationId) as { id: string } | undefined;
+  const current = sqlite.prepare("SELECT * FROM conversations WHERE id = ?").get(conversationId) as { id: string; status: string; archived_at: string | null } | undefined;
   if (!current) return sendNotFound(reply, "Conversation");
   if (body.modelAlias && !config.models[body.modelAlias]) {
     return reply.code(400).send({ error: { code: "model_not_configured", message: "The selected model alias is not configured." } });
   }
+  const nextStatus = body.archived === undefined ? current.status : body.archived ? "archived" : "active";
+  const nextArchivedAt = body.archived === undefined ? current.archived_at : body.archived ? now() : null;
   sqlite.prepare("UPDATE conversations SET title = COALESCE(?, title), model_alias = COALESCE(?, model_alias), status = ?, archived_at = ?, updated_at = ? WHERE id = ?")
-    .run(body.title ?? null, body.modelAlias ?? null, body.archived ? "archived" : "active", body.archived ? now() : null, now(), conversationId);
+    .run(body.title ?? null, body.modelAlias ?? null, nextStatus, nextArchivedAt, now(), conversationId);
   return sqlite.prepare("SELECT * FROM conversations WHERE id = ?").get(conversationId);
 });
 

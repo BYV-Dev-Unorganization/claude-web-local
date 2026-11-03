@@ -83,7 +83,7 @@ export async function* streamCompletion(
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => "");
-    const safeBody = bodyText.replace(/(sk-[A-Za-z0-9_-]{12,}|Bearer\s+\S+|x-api-key["']?\s*[:=]\s*["']?[^"'\s]+)/gi, "[REDACTED]").slice(0, 1000);
+    const safeBody = (config.AI_API_KEY ? bodyText.split(config.AI_API_KEY).join("[REDACTED]") : bodyText).slice(0, 1000);
     throw new ProviderError("Provider returned HTTP " + response.status + (safeBody ? ": " + safeBody : ""), response.status === 429 || response.status >= 500, response.status);
   }
   if (!response.body) throw new ProviderError("Provider returned an empty streaming body.", true);
@@ -118,7 +118,7 @@ export async function* streamCompletion(
             const usage = data.usage as Record<string, unknown> | undefined;
             if (usage) yield { type: "usage", outputTokens: Number(usage.output_tokens ?? 0) };
           } else if (data.type === "message_stop") {
-            yield { type: "done", requestId };
+            yield { type: "done", ...(requestId ? { requestId } : {}) };
           } else if (data.type === "error") {
             const error = data.error as Record<string, unknown> | undefined;
             throw new ProviderError(String(error?.message ?? "Provider stream error"), true);
@@ -131,8 +131,8 @@ export async function* streamCompletion(
             const usage = data.usage as Record<string, unknown>;
             yield { type: "usage", inputTokens: Number(usage.prompt_tokens ?? 0), outputTokens: Number(usage.completion_tokens ?? 0) };
           }
-          if (choices?.[0]?.finish_reason) yield { type: "done", requestId };
-          if (data.done === true) yield { type: "done", requestId };
+          if (choices?.[0]?.finish_reason) yield { type: "done", ...(requestId ? { requestId } : {}) };
+          if (data.done === true) yield { type: "done", ...(requestId ? { requestId } : {}) };
         }
       }
     }

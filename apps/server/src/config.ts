@@ -52,6 +52,15 @@ if (!parsed.success) {
 }
 
 const env = parsed.data;
+if (!["127.0.0.1", "::1", "localhost"].includes(env.APP_HOST)) {
+  throw new Error("APP_HOST must remain loopback. Put remote access behind a VPN or authenticated reverse proxy that connects to 127.0.0.1.");
+}
+if (env.AI_BASE_URL) {
+  const providerUrl = new URL(env.AI_BASE_URL);
+  if (!["http:", "https:"].includes(providerUrl.protocol) || providerUrl.username || providerUrl.password || providerUrl.search || providerUrl.hash) {
+    throw new Error("AI_BASE_URL must be an HTTP(S) base URL without embedded credentials, query parameters, or fragments.");
+  }
+}
 const repositoryRoot = path.resolve(process.cwd(), "../..");
 const databaseFile = env.DATABASE_URL.startsWith("file:")
   ? env.DATABASE_URL.slice(5)
