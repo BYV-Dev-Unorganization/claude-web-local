@@ -79,7 +79,7 @@ function parseCheckpoint(value: string | null): Checkpoint | null {
     return {
       version: 1,
       phase: parsed.phase === "completed" ? "completed" : parsed.phase === "executing" ? "executing" : "planning",
-      plan: parsed.plan,
+      ...(parsed.plan ? { plan: parsed.plan } : {}),
       messages: parsed.messages,
       pendingToolCalls: parsed.pendingToolCalls,
       iterations: Number(parsed.iterations ?? 0),
@@ -89,7 +89,7 @@ function parseCheckpoint(value: string | null): Checkpoint | null {
       activeElapsedMs: Number(parsed.activeElapsedMs ?? 0),
       activationStartedAt: Date.now(),
       savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : nowIso(),
-      finalText: typeof parsed.finalText === "string" ? parsed.finalText : undefined
+      ...(typeof parsed.finalText === "string" ? { finalText: parsed.finalText } : {})
     };
   } catch {
     return null;
@@ -282,6 +282,11 @@ export async function runClaimedTask(
 
     if (checkpoint.pendingToolCalls.length > 0) {
       const call = checkpoint.pendingToolCalls[0];
+      if (!call) {
+        checkpoint.pendingToolCalls = [];
+        saveCheckpoint(taskId, checkpoint);
+        continue;
+      }
       if (checkpoint.toolCalls >= config.TASK_MAX_TOOL_CALLS) throw new Error("Task tool-call budget was exhausted.");
       if (!task.workspace_id) {
         checkpoint.messages.push({ role: "tool", toolCallId: call.id, content: "Tool execution blocked: no workspace was selected for this task." });

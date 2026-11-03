@@ -125,10 +125,10 @@ describe("provider agent contract", () => {
     ];
     const schema = { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false };
     const result = await completeAgentTurn("sonnet", messages, new AbortController().signal, { outputSchema: schema });
-    expect(result.toolCalls[0]).toEqual({ id: "call_1", name: "workspace.list", input: { limit: 5 } });
+    expect(result.toolCalls[0]!).toEqual({ id: "call_1", name: "workspace.list", input: { limit: 5 } });
     const bodyMessages = requestBody.messages as Array<Record<string, unknown>>;
-    expect((bodyMessages[1].tool_calls as unknown[]).length).toBe(1);
-    expect(bodyMessages[2].role).toBe("tool");
+    expect(((bodyMessages[1]!).tool_calls as unknown[]).length).toBe(1);
+    expect(bodyMessages[2]!.role).toBe("tool");
     expect(requestBody.response_format).toEqual({
       type: "json_schema",
       json_schema: { name: "cwl_structured_output", strict: true, schema }

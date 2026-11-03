@@ -54,7 +54,7 @@ export async function* streamCompletion(
     headers["anthropic-version"] = "2023-06-01";
     body = {
       model,
-      max_tokens: maxTokens,
+      max_tokens: config.AI_MAX_OUTPUT_TOKENS,
       stream: true,
       system: messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n"),
       messages: messages.filter((message) => message.role !== "system").map((message) => ({ role: message.role, content: message.content }))
@@ -256,7 +256,7 @@ export async function completeAgentTurn(
     }));
     body = {
       model,
-      max_tokens: config.AI_MAX_OUTPUT_TOKENS,
+      max_tokens: maxTokens,
       messages: messages.map((message) => {
         if (message.role === "assistant" && message.toolCalls?.length) {
           return {
@@ -320,7 +320,7 @@ export async function completeAgentTurn(
     inputTokens = Number(usage?.input_tokens ?? 0);
     outputTokens = Number(usage?.output_tokens ?? 0);
     stopReason = typeof data.stop_reason === "string" ? data.stop_reason : undefined;
-    return { text, toolCalls, inputTokens, outputTokens, stopReason, providerContent: blocks };
+    return { text, toolCalls, inputTokens, outputTokens, ...(stopReason ? { stopReason } : {}), providerContent: blocks };
   }
 
   const choices = Array.isArray(data.choices) ? data.choices as Array<Record<string, unknown>> : [];
@@ -336,7 +336,7 @@ export async function completeAgentTurn(
   inputTokens = Number(usage?.prompt_tokens ?? 0);
   outputTokens = Number(usage?.completion_tokens ?? 0);
   stopReason = typeof choice.finish_reason === "string" ? choice.finish_reason : undefined;
-  return { text, toolCalls, inputTokens, outputTokens, stopReason };
+  return { text, toolCalls, inputTokens, outputTokens, ...(stopReason ? { stopReason } : {}) };
 }
 
 export type ModelCapabilityReport = {
